@@ -17,6 +17,10 @@ namespace BatchPlotPdf
         public string IssuePurpose = "";
         public Dictionary<string, string> Custom =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Tham chieu COM song de ghi nguoc vao .dst (dat boi SheetSetReader.ReadOpenSheetSets).
+        public object Com;      // AcSm.IAcSmSheet
+        public object DbCom;    // AcSm.IAcSmDatabase
     }
 
     public static class SheetSetReader
@@ -37,12 +41,12 @@ namespace BatchPlotPdf
                 string ssName = Safe(() => ss.GetName());
                 var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-                CollectSheets(ss, ssName, ssCustom, result);
+                CollectSheets(ss, db, ssName, ssCustom, result);
             }
             return result;
         }
 
-        private static void CollectSheets(AcSm.IAcSmSubset subset, string ssName,
+        private static void CollectSheets(AcSm.IAcSmSubset subset, AcSm.IAcSmDatabase db, string ssName,
             Dictionary<string, string> ssCustom, List<SheetInfo> outList)
         {
             AcSm.IAcSmEnumComponent en = subset.GetSheetEnumerator();
@@ -53,22 +57,20 @@ namespace BatchPlotPdf
                 var sheet = comp as AcSm.IAcSmSheet;
                 if (sheet != null)
                 {
+                    // Revision/RevisionDate/IssuePurpose nam tren IAcSmSheet2 (xac dinh bang SSMPROBE).
+                    var s2 = sheet as AcSm.IAcSmSheet2;
                     var si = new SheetInfo
                     {
                         SheetSetName = ssName,
                         Number = Safe(() => sheet.GetNumber()),
                         Title = Safe(() => sheet.GetTitle()),
                         Desc = Safe(() => sheet.GetDesc()),
-                        // Revision/issue KHONG lo ra tren IAcSmSheet (CS1061) va cung KHONG nam
-                        // trong custom property bag. Chung nam tren mot interface KHAC ma coclass
-                        // AcSmSheet co implement (co the la dang property get_RevisionNumber...).
-                        // -> Quet MOI interface trong assembly interop AcSm, tim getter khong tham
-                        // so tra ve string co ten khop tu khoa roi Invoke (CLR tu QueryInterface).
-                        // Cach nay khong phu thuoc ten/phien ban typelib cu the.
-                        Revision = ScanInvoke(sheet, new[] { "RevisionNumber", "Revision" }, "Date"),
-                        RevisionDate = ScanInvoke(sheet, new[] { "RevisionDate" }, null),
-                        IssuePurpose = ScanInvoke(sheet, new[] { "IssuePurpose", "Purpose" }, null)
+                        Revision = s2 == null ? "" : Safe(() => s2.GetRevisionNumber()),
+                        RevisionDate = s2 == null ? "" : Safe(() => s2.GetRevisionDate()),
+                        IssuePurpose = s2 == null ? "" : Safe(() => s2.GetIssuePurpose())
                     };
+                    si.Com = sheet;   // giu tham chieu COM de ghi nguoc
+                    si.DbCom = db;
 
                     try
                     {
@@ -87,8 +89,6 @@ namespace BatchPlotPdf
                     foreach (var kv in ReadCustomProps(sheet.GetCustomPropertyBag()))
                         si.Custom[kv.Key] = kv.Value;
 
-                    // Neu khong lay duoc qua method, thu tim revision/issue trong custom properties
-                    // (mot so bo Sheet Set luu cac truong nay duoi dang custom property).
                     if (string.IsNullOrEmpty(si.Revision))
                         si.Revision = FromCustom(si.Custom, "Revision", "RevisionNumber",
                             "Sheet revision number", "Revision Number");
@@ -104,7 +104,7 @@ namespace BatchPlotPdf
                 else
                 {
                     var sub = comp as AcSm.IAcSmSubset;
-                    if (sub != null) CollectSheets(sub, ssName, ssCustom, outList);
+                    if (sub != null) CollectSheets(sub, db, ssName, ssCustom, outList);
                 }
             }
         }
@@ -140,12 +140,9 @@ namespace BatchPlotPdf
             try { return f() ?? ""; } catch { return ""; }
         }
 
-        // Revision/IssuePurpose khong lo ra qua IAcSmSheet, nhung coclass AcSmSheet thuong
-        // implement chung o mot interface khac (hoac dang property). Ta quet MOI interface trong
-        // assembly interop AcSm, tim method/getter parameterless tra ve string co ten khop tu
-        // khoa (includeAny) va khong chua 'exclude', roi Invoke tren object -> CLR tu
-        // QueryInterface; interface nao object khong support thi nem & bo qua. Nho vay khong can
-        // biet chinh xac ten interface/method, khong phu thuoc phien ban typelib.
+        // Quet MOI interface trong assembly interop AcSm, tim method/getter parameterless tra ve
+        // string/object co ten khop tu khoa (includeAny) va khong chua 'exclude', roi Invoke tren
+        // object -> CLR tu QueryInterface; interface nao object khong support thi nem & bo qua.
         private static string ScanInvoke(object com, string[] includeAny, string exclude)
         {
             if (com == null) return "";
@@ -158,8 +155,6 @@ namespace BatchPlotPdf
                     foreach (var m in t.GetMethods())
                     {
                         if (m.GetParameters().Length != 0) continue;
-                        // Broaden: nhieu getter cua AcSm tra ve 'object' (variant) chu khong
-                        // phai 'string' -> truoc day loc string-only nen BO SOT revision. Nhan ca hai.
                         if (m.ReturnType != typeof(string) && m.ReturnType != typeof(object)) continue;
                         string n = m.Name;
                         if (!string.IsNullOrEmpty(exclude) &&
@@ -171,8 +166,6 @@ namespace BatchPlotPdf
                         try
                         {
                             object r = m.Invoke(com, null);
-                            // Chi nhan string hoac value type -> tranh tra ve "System.__ComObject"
-                            // khi getter tra ve mot COM object (khong phai gia tri thuc).
                             if (r != null && (r is string || r.GetType().IsValueType))
                             {
                                 string s = r.ToString();
@@ -187,7 +180,6 @@ namespace BatchPlotPdf
             return "";
         }
 
-        // Lay gia tri custom property dau tien khop mot trong cac ten (khong phan biet hoa thuong).
         private static string FromCustom(Dictionary<string, string> custom, params string[] keys)
         {
             if (custom == null) return "";

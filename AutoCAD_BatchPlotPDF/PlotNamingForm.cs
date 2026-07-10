@@ -37,9 +37,9 @@ namespace BatchPlotPdf
         {
             _sheets = sheets ?? new List<SheetInfo>();
             Text = "Đặt tên PDF theo Sheet Set";
-            Width = 940; Height = 680; StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size(940, 780); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
-            MinimumSize = new Size(840, 580);
+            MinimumSize = new Size(900, 700);
             Padding = new Padding(6);
 
             const int labelW = 110;
@@ -194,7 +194,7 @@ namespace BatchPlotPdf
                 Left = 20,
                 Top = 270,
                 Width = 874,
-                Height = 316,
+                Height = 452,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 AllowUserToAddRows = false,
                 ReadOnly = false,
@@ -281,7 +281,7 @@ namespace BatchPlotPdf
             };
             Controls.Add(dgv);
 
-            const int btnTop = 604;
+            const int btnTop = 734;
             btnAll = new Button
             {
                 Text = "Chọn tất cả",

@@ -113,9 +113,6 @@ namespace BatchPlotPdf
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // In tung sheet bang Publisher (DSD): KHONG dung PlotEngine cho database side-load.
-            // PlotEngine chi in duoc layout cua document dang MO & active -> in tu DWG side-load
-            // (ReadDwgFile) se bao eInvalidInput o moi sheet. Publisher publish duoc layout tu
-            // nhieu DWG khac ma khong can mo file.
             if (merged)
             {
                 var all = new DsdEntryCollection();
@@ -147,7 +144,6 @@ namespace BatchPlotPdf
                 while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
                 string file = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
 
-                // Moi sheet = 1 DSD entry + SheetType.MultiPdf -> 1 file PDF dung ten tuy y (DestinationName)
                 var one = new DsdEntryCollection();
                 one.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
 
@@ -164,8 +160,43 @@ namespace BatchPlotPdf
             ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
         }
 
-        // Publish 1 hoac nhieu DsdEntry ra PDF. Dat BACKGROUNDPLOT=0 de chay foreground (dong bo);
-        // patch PromptForDwgName=FALSE de khong hien hop thoai hoi ten file.
+        // Mo bang quan ly Sheet Set: sua Number/Title/Desc/Custom (+ thu ghi Revision) roi luu vao .dst.
+        [CommandMethod("SSMEDIT", CommandFlags.Session)]
+        public void SheetSetEdit()
+        {
+            Document doc = AcadApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            Editor ed = doc.Editor;
+
+            List<SheetInfo> sheets;
+            try { sheets = SheetSetReader.ReadOpenSheetSets(); }
+            catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set: " + ex.Message); return; }
+            if (sheets.Count == 0)
+            {
+                ed.WriteMessage("\nChưa mở Sheet Set nào trong Sheet Set Manager.");
+                return;
+            }
+
+            bool doSave;
+            using (var form = new SheetSetEditorForm(sheets))
+            {
+                var dr = AcadApp.ShowModalDialog(form);
+                doSave = dr == System.Windows.Forms.DialogResult.OK && form.DoSave;
+            }
+            if (!doSave) return;
+
+            SaveResult r;
+            try { r = SheetSetWriter.Save(sheets, ed); }
+            catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
+
+            ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
+                r.SheetsSaved, r.RevisionOk, r.RevisionFail);
+            if (r.RevisionFail > 0)
+                ed.WriteMessage("\nRevision/Issue purpose không ghi được qua COM (bản AutoCAD này không lộ setter) — sửa trực tiếp trong hộp thoại Sheet Properties của SSM.");
+            foreach (var w in r.Warnings) ed.WriteMessage("\n- " + w);
+        }
+
+        // Publish 1 hoac nhieu DsdEntry ra PDF. BACKGROUNDPLOT=0 (dong bo) + FILEDIA=0 + ForceNoPrompt.
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
             if (entries == null || entries.Count == 0) return false;
@@ -173,7 +204,7 @@ namespace BatchPlotPdf
             short bp = (short)AcadApp.GetSystemVariable("BACKGROUNDPLOT");
             short filedia = (short)AcadApp.GetSystemVariable("FILEDIA");
             AcadApp.SetSystemVariable("BACKGROUNDPLOT", 0);
-            AcadApp.SetSystemVariable("FILEDIA", 0);   // TAT hop thoai "Specify PDF File" -> in 1 phat la xong
+            AcadApp.SetSystemVariable("FILEDIA", 0);   // TAT hop thoai "Specify PDF File"
             string dsdFile = Path.Combine(outDir, "_ssm_batch.dsd");
             try
             {
@@ -188,13 +219,8 @@ namespace BatchPlotPdf
                 dsd.SetDsdEntryCollection(entries);
                 dsd.WriteDsd(dsdFile);
 
-                // DSD la file ANSI theo code page he thong (doc/ghi UTF-8 lam hong tieng Viet).
-                // THU PHAM chinh cua hop thoai "Specify PDF File" lap lai la dong PromptForDwgName:
-                // AutoCAD co the ghi =TRUE hoac khac case, nen .Replace("...=TRUE",...) truoc day
-                // KHONG an. Nay ep FALSE theo TUNG DONG va chen vao [Target] neu thieu.
                 var enc = Encoding.Default;
                 ForceNoPrompt(dsdFile, enc);
-                // Ghi lai DSD thuc te (dang text ANSI) de chan doan neu van hien hop thoai.
                 try { File.Copy(dsdFile, Path.Combine(outDir, "_dsd_debug.txt"), true); } catch { }
                 dsd.ReadDsd(dsdFile);
 
@@ -215,10 +241,7 @@ namespace BatchPlotPdf
             }
         }
 
-        // Ep DSD khong hoi ten file. Co NHIEU token co the bat hop thoai tuy phien ban:
-        // PromptForDwgName / PromptForName / PromptForDwfName -> ep het thanh FALSE (khong phan
-        // biet hoa thuong / khoang trang). Neu khong co dong PromptForDwgName nao thi CHEN vao
-        // ngay sau [Target].
+        // Ep DSD khong hoi ten file: moi token PromptFor* -> FALSE theo tung dong; chen vao [Target] neu thieu.
         private static void ForceNoPrompt(string dsdFile, Encoding enc)
         {
             try
