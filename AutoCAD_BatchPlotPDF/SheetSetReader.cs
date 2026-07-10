@@ -94,7 +94,7 @@ namespace BatchPlotPdf
                 AcSm.IAcSmEnumProperty pe = bag.GetPropertyEnumerator();
                 pe.Reset();
                 string name;
-                AcSm.IAcSmCustomPropertyValue val;
+                AcSm.AcSmCustomPropertyValue val;
                 pe.Next(out name, out val);
                 while (!string.IsNullOrEmpty(name))
                 {
