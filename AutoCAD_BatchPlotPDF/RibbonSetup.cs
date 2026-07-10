@@ -49,11 +49,6 @@ namespace BatchPlotPdf
 
             src.Items.Add(MakeButton("MTECH", "In theo\nSheet Set", "MTECH ",
                 "Mo UserForm dat ten PDF theo Sheet Set Manager va in tung sheet."));
-            src.Items.Add(new RibbonSeparator());
-            src.Items.Add(MakeButton("BATCHPDF", "Mỗi layout\n1 PDF", "BATCHPDF ",
-                "In moi layout cua ban ve hien tai ra 1 file PDF rieng."));
-            src.Items.Add(MakeButton("BATCHPDF1FILE", "Gộp\n1 PDF", "BATCHPDF1FILE ",
-                "Gop tat ca layout thanh 1 file PDF nhieu trang."));
         }
 
         private static RibbonButton MakeButton(string id, string text, string macro, string tip)
