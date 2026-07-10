@@ -29,6 +29,9 @@ namespace BatchPlotPdf
                 map["LayoutName"] = mergedMode ? "" : s.LayoutName;
                 map["DwgName"] = mergedMode ? "" :
                     (string.IsNullOrEmpty(s.DwgPath) ? "" : Path.GetFileNameWithoutExtension(s.DwgPath));
+                map["Revision"] = mergedMode ? "" : s.Revision;
+                map["RevisionDate"] = mergedMode ? "" : s.RevisionDate;
+                map["IssuePurpose"] = mergedMode ? "" : s.IssuePurpose;
                 map["SheetSetName"] = s.SheetSetName;
                 foreach (var kv in s.Custom)
                     if (!map.ContainsKey(kv.Key)) map[kv.Key] = kv.Value;
@@ -161,14 +164,16 @@ namespace BatchPlotPdf
             ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
         }
 
-        // Publish 1 hoac nhieu DsdEntry ra PDF. Dat BACKGROUNDPLOT=0 de chay foreground (dong bo); test
+        // Publish 1 hoac nhieu DsdEntry ra PDF. Dat BACKGROUNDPLOT=0 de chay foreground (dong bo);
         // patch PromptForDwgName=FALSE de khong hien hop thoai hoi ten file.
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
             if (entries == null || entries.Count == 0) return false;
 
             short bp = (short)AcadApp.GetSystemVariable("BACKGROUNDPLOT");
+            short filedia = (short)AcadApp.GetSystemVariable("FILEDIA");
             AcadApp.SetSystemVariable("BACKGROUNDPLOT", 0);
+            AcadApp.SetSystemVariable("FILEDIA", 0);   // TAT hop thoai "Specify PDF File" -> in 1 phat la xong
             string dsdFile = Path.Combine(outDir, "_ssm_batch.dsd");
             try
             {
@@ -204,6 +209,7 @@ namespace BatchPlotPdf
             finally
             {
                 AcadApp.SetSystemVariable("BACKGROUNDPLOT", bp);
+                AcadApp.SetSystemVariable("FILEDIA", filedia);
                 if (File.Exists(dsdFile)) File.Delete(dsdFile);
             }
         }

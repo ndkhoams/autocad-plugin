@@ -156,7 +156,7 @@ namespace BatchPlotPdf
             string dsdFile = Path.Combine(outDir, "_batch.dsd");
             dsd.WriteDsd(dsdFile);
             // DSD la file ANSI theo code page he thong; doc/ghi UTF-8 se lam hong tieng Viet
-            // va khien ReadDsd bo qua PromptForDwgName (van hien hop thoai). Dung Encoding.Default (ANSI). test
+            // va khien ReadDsd bo qua PromptForDwgName (van hien hop thoai). Dung Encoding.Default (ANSI).
             var enc = System.Text.Encoding.Default;
             string txt = File.ReadAllText(dsdFile, enc)
                 .Replace("PromptForDwgName=TRUE", "PromptForDwgName=FALSE");

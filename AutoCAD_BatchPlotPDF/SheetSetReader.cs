@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using AcSm = ACSMCOMPONENTS24Lib;   // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop test
+using AcSm = ACSMCOMPONENTS24Lib;   // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop
 
 namespace BatchPlotPdf
 {
@@ -12,6 +12,9 @@ namespace BatchPlotPdf
         public string Desc = "";
         public string LayoutName = "";
         public string DwgPath = "";
+        public string Revision = "";
+        public string RevisionDate = "";
+        public string IssuePurpose = "";
         public Dictionary<string, string> Custom =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
@@ -55,7 +58,13 @@ namespace BatchPlotPdf
                         SheetSetName = ssName,
                         Number = Safe(() => sheet.GetNumber()),
                         Title = Safe(() => sheet.GetTitle()),
-                        Desc = Safe(() => sheet.GetDesc())
+                        Desc = Safe(() => sheet.GetDesc()),
+                        // Cac truong revision (theo hop thoai Sheet Properties). Neu typelib khac
+                        // ten ham (GetRevisionNumber/GetRevisionDate/GetPurpose), F12 kiem tra roi
+                        // chinh cho khop; hoac bo dong nao khong ton tai.
+                        Revision = Safe(() => sheet.GetRevisionNumber()),
+                        RevisionDate = Safe(() => sheet.GetRevisionDate()),
+                        IssuePurpose = Safe(() => sheet.GetPurpose())
                     };
 
                     try
