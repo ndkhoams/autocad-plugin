@@ -17,7 +17,7 @@ namespace BatchPlotPdf
 {
     public static class SsmNaming
     {
-        public static string Resolve(string template, SheetInfo s, bool mergedMode)
+        public static string Resolve(string template, SheetInfo s, bool mergedMode, string projectNumberOverride = null)
         {
             if (string.IsNullOrEmpty(template)) return "";
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -35,6 +35,12 @@ namespace BatchPlotPdf
                 map["SheetSetName"] = s.SheetSetName;
                 foreach (var kv in s.Custom)
                     if (!map.ContainsKey(kv.Key)) map[kv.Key] = kv.Value;
+            }
+            // Project number nhap tay tu form MTECH (COM khong doc duoc gia tri that) -> ghi de token.
+            if (!string.IsNullOrEmpty(projectNumberOverride))
+            {
+                map["Project Number"] = projectNumberOverride;
+                map["ProjectNumber"] = projectNumberOverride;
             }
 
             var sb = new StringBuilder();
@@ -95,12 +101,13 @@ namespace BatchPlotPdf
                 ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
 
-            string template, outDir;
+            string template, outDir, projNum;
             bool merged;
             using (var form = new PlotNamingForm(sheets, defDir))
             {
                 if (AcadApp.ShowModalDialog(form) != System.Windows.Forms.DialogResult.OK) return;
                 template = form.Template; outDir = form.OutputDir; merged = form.Merged;
+                projNum = form.ProjectNumber;
                 sheets = form.SelectedSheets;
             }
             if (sheets.Count == 0) { ed.WriteMessage("\nBạn chưa chọn sheet nào để in."); return; }
@@ -124,7 +131,7 @@ namespace BatchPlotPdf
                 }
                 if (all.Count == 0) { ed.WriteMessage("\nKhông có sheet hợp lệ để in."); return; }
 
-                string mName = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, sheets.Count > 0 ? sheets[0] : null, true));
+                string mName = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, sheets.Count > 0 ? sheets[0] : null, true, projNum));
                 if (string.IsNullOrWhiteSpace(mName)) mName = "MergedSheets";
                 string mFile = Path.Combine(outDir, SsmNaming.EnsurePdf(mName));
 
@@ -138,7 +145,7 @@ namespace BatchPlotPdf
                 if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                 { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
 
-                string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false));
+                string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false, projNum));
                 if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
                 string baseName = name; int n = 2;
                 while (!used.Add(name)) name = baseName + " (" + (n++) + ")";

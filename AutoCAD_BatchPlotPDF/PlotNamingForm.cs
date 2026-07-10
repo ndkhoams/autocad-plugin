@@ -10,7 +10,7 @@ namespace BatchPlotPdf
     public class PlotNamingForm : Form
     {
         private readonly List<SheetInfo> _sheets;
-        private TextBox txtTemplate, txtOutDir;
+        private TextBox txtTemplate, txtOutDir, txtProjNum;
         private FlowLayoutPanel pnlTokens;
         private CheckBox chkMerged;
         private DataGridView dgv;
@@ -22,6 +22,7 @@ namespace BatchPlotPdf
 
         public string Template { get { return txtTemplate.Text; } }
         public string OutputDir { get { return txtOutDir.Text; } }
+        public string ProjectNumber { get { return txtProjNum.Text.Trim(); } }
         public bool Merged { get { return chkMerged.Checked; } }
         public List<SheetInfo> SelectedSheets
         {
@@ -62,7 +63,7 @@ namespace BatchPlotPdf
                 Width = 760,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Text = "$(SheetNumber) - $(SheetTitle)"
+                Text = "$(Project Number)-$(SheetNumber)-Sht$(SHT)-($(Revision))"
             };
             txtTemplate.TextChanged += (s, e) => RefreshPreview();
             Controls.Add(txtTemplate);
@@ -91,11 +92,35 @@ namespace BatchPlotPdf
             Controls.Add(pnlTokens);
             BuildTokenButtons();
 
+            // Project number: AutoCAD khong cho doc gia tri that qua COM (bag chi tra ve default),
+            // nen nhap tay o day; token $(Project Number) trong mau ten se dung gia tri nay.
+            var lblProj = new Label
+            {
+                Text = "Project number:",
+                Left = 20,
+                Top = 162,
+                Width = labelW,
+                Height = 26,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            Controls.Add(lblProj);
+            txtProjNum = new TextBox
+            {
+                Left = fieldL,
+                Top = 160,
+                Width = 760,
+                Height = 26,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Text = LoadSavedProjectNumber()
+            };
+            txtProjNum.TextChanged += (s, e) => RefreshPreview();
+            Controls.Add(txtProjNum);
+
             var lblDir = new Label
             {
                 Text = "Thư mục lưu:",
                 Left = 20,
-                Top = 172,
+                Top = 210,
                 Width = labelW,
                 Height = 26,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -104,7 +129,7 @@ namespace BatchPlotPdf
             txtOutDir = new TextBox
             {
                 Left = fieldL,
-                Top = 170,
+                Top = 208,
                 Width = 712,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -116,7 +141,7 @@ namespace BatchPlotPdf
             {
                 Text = "...",
                 Left = 850,
-                Top = 169,
+                Top = 207,
                 Width = 44,
                 Height = 28,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
@@ -132,7 +157,7 @@ namespace BatchPlotPdf
             {
                 Text = "Gộp tất cả vào 1 file PDF (dùng mẫu tên cho tên file gộp)",
                 Left = fieldL,
-                Top = 208,
+                Top = 246,
                 Width = 600,
                 Height = 24
             };
@@ -143,7 +168,7 @@ namespace BatchPlotPdf
             {
                 Text = "Mẹo: giữ Shift rồi tích để chọn/bỏ cả dải; cột Rev sửa trực tiếp được.",
                 Left = 20,
-                Top = 240,
+                Top = 278,
                 Width = 440,
                 Height = 22,
                 ForeColor = Color.Gray,
@@ -156,7 +181,7 @@ namespace BatchPlotPdf
             {
                 Text = "Rev chung:",
                 Left = 470,
-                Top = 240,
+                Top = 278,
                 Width = 72,
                 Height = 22,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -166,7 +191,7 @@ namespace BatchPlotPdf
             var txtBulkRev = new TextBox
             {
                 Left = 544,
-                Top = 238,
+                Top = 276,
                 Width = 110,
                 Height = 24,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
@@ -176,7 +201,7 @@ namespace BatchPlotPdf
             {
                 Text = "Đặt cho sheet đã chọn",
                 Left = 662,
-                Top = 236,
+                Top = 274,
                 Width = 232,
                 Height = 28,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
@@ -192,9 +217,9 @@ namespace BatchPlotPdf
             dgv = new DataGridView
             {
                 Left = 20,
-                Top = 270,
+                Top = 308,
                 Width = 874,
-                Height = 452,
+                Height = 414,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 AllowUserToAddRows = false,
                 ReadOnly = false,
@@ -248,7 +273,7 @@ namespace BatchPlotPdf
                     if (sh0 != null)
                     {
                         sh0.Revision = Convert.ToString(dgv.Rows[e.RowIndex].Cells["Rev"].Value ?? "").Trim();
-                        string nm = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, sh0, false));
+                        string nm = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, sh0, false, ProjectNumber));
                         if (string.IsNullOrWhiteSpace(nm)) nm = sh0.LayoutName;
                         dgv.Rows[e.RowIndex].Cells["File"].Value = SsmNaming.EnsurePdf(nm);
                     }
@@ -315,6 +340,7 @@ namespace BatchPlotPdf
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
                 DialogResult = DialogResult.OK
             };
+            btnOk.Click += (s, e) => SaveProjectNumber();   // nho Project number cho lan sau
             btnCancel = new Button
             {
                 Text = "Hủy",
@@ -331,6 +357,27 @@ namespace BatchPlotPdf
             RefreshPreview();
         }
 
+        // Luu/doc Project number trong registry HKCU de nho cho lan sau.
+        private const string RegPath = @"Software\BatchPlotPdf";
+        private static string LoadSavedProjectNumber()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegPath))
+                    return k == null ? "" : (k.GetValue("ProjectNumber") as string ?? "");
+            }
+            catch { return ""; }
+        }
+        public void SaveProjectNumber()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RegPath))
+                    if (k != null) k.SetValue("ProjectNumber", ProjectNumber ?? "");
+            }
+            catch { }
+        }
+
         private void ApplyCheck(SheetInfo sheet, bool isChecked)
         {
             if (isChecked) _excluded.Remove(sheet); else _excluded.Add(sheet);
@@ -341,8 +388,13 @@ namespace BatchPlotPdf
             var tokens = new List<string> {
                 "SheetNumber", "SheetTitle", "SheetDesc", "SheetSetName", "LayoutName", "DwgName",
                 "Revision", "RevisionDate", "IssuePurpose" };
+            // Chi hien cac custom token thuc su dung (CONT, SHT, Project Number); bo cac property
+            // cap Sheet Set khong dung: Client, Project Address Line 1/2/3, Project Name, Total sheet.
+            var customShow = new[] { "CONT", "SHT", "Project Number" };
             var customKeys = _sheets.SelectMany(s => s.Custom.Keys)
-                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(k => k);
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(k => customShow.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(k => Array.FindIndex(customShow, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)));
             foreach (var k in customKeys) tokens.Add(k);
 
             foreach (var t in tokens)
@@ -381,7 +433,7 @@ namespace BatchPlotPdf
             if (chkMerged.Checked)
             {
                 mergedName = SsmNaming.EnsurePdf(SsmNaming.SanitizeFile(
-                    SsmNaming.Resolve(Template, FirstSelected(), true)));
+                    SsmNaming.Resolve(Template, FirstSelected(), true, ProjectNumber)));
                 if (string.IsNullOrWhiteSpace(mergedName)) mergedName = "MergedSheets.pdf";
             }
 
@@ -394,7 +446,7 @@ namespace BatchPlotPdf
                 }
                 else
                 {
-                    string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, s, false));
+                    string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, s, false, ProjectNumber));
                     if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
                     string baseName = name; int n = 2;
                     while (!used.Add(name)) name = baseName + " (" + (n++) + ")";

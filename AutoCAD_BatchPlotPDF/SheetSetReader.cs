@@ -18,6 +18,10 @@ namespace BatchPlotPdf
         public Dictionary<string, string> Custom =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        // Chi cac custom key nay duoc ghi nguoc (form dat = _whitelist: CONT, SHT).
+        // Neu null -> KHONG ghi custom nao (tranh dung vao property cap Sheet Set khac -> mat/hong).
+        public List<string> EditableCustomKeys = null;
+
         // Tham chieu COM song de ghi nguoc vao .dst (dat boi SheetSetReader.ReadOpenSheetSets).
         public object Com;      // AcSm.IAcSmSheet
         public object DbCom;    // AcSm.IAcSmDatabase

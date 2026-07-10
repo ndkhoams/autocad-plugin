@@ -76,8 +76,8 @@ namespace BatchPlotPdf
             try { if (Safe(() => sheet.GetDesc()) != (s.Desc ?? "")) sheet.SetDesc(s.Desc ?? ""); }
             catch (Exception ex) { res.Warnings.Add("Desc '" + s.Title + "': " + ex.Message); }
 
-            // 2) Custom properties (CONT, SHT, ...) -> qua CustomPropertyBag.
-            WriteCustomProps(sheet, s.Custom, s.Title, res);
+            // 2) Custom properties (chi cot form quan ly: CONT, SHT) -> qua CustomPropertyBag.
+            WriteCustomProps(sheet, s.Custom, s.EditableCustomKeys, s.Title, res);
 
             // 3) Revision / RevisionDate / IssuePurpose -> IAcSmSheet2 (setter chinh thuc, SSMPROBE xac dinh).
             var s2 = sheet as AcSm.IAcSmSheet2;
@@ -97,47 +97,54 @@ namespace BatchPlotPdf
             res.SheetsSaved++;
         }
 
-        // Cap nhat custom property (CONT, SHT, ...) NGAY tren value object co san de giu nguyen
-        // flags/kieu; loi tung prop duoc ghi ra Warnings de biet chinh xac vi sao khong luu duoc.
+        // Cap nhat custom property NGAY tren value object co san de giu nguyen flags/kieu.
+        // QUAN TRONG: chi ghi cac key trong editableKeys (CONT, SHT) - la cot form quan ly.
+        // KHONG lap qua toan bo custom (co ca property cap Sheet Set nhu Client/Project) vi ghi
+        // de len chung o cap sheet se lam MAT/hong cac custom property khac tren sheet.
         private static void WriteCustomProps(AcSm.IAcSmSheet sheet, Dictionary<string, string> custom,
-            string title, SaveResult res)
+            List<string> editableKeys, string title, SaveResult res)
         {
             if (custom == null || custom.Count == 0) return;
+            if (editableKeys == null || editableKeys.Count == 0) return;   // khong co cot custom -> khong dung toi bag
 
             AcSm.IAcSmCustomPropertyBag bag = null;
             try { bag = sheet.GetCustomPropertyBag(); }
             catch (Exception ex) { res.Warnings.Add("Custom bag '" + title + "': " + ex.Message); return; }
             if (bag == null) { res.Warnings.Add("Custom '" + title + "': khong lay duoc property bag."); return; }
 
-            foreach (var kv in custom)
+            foreach (var key in editableKeys)
             {
+                string value;
+                if (!custom.TryGetValue(key, out value)) continue;
+                value = value ?? "";
                 try
                 {
                     // GetProperty co the tra ve interface -> cast ve coclass van bien dich & chay.
                     AcSm.AcSmCustomPropertyValue cur = null;
-                    try { cur = (AcSm.AcSmCustomPropertyValue)bag.GetProperty(kv.Key); } catch { }
+                    try { cur = (AcSm.AcSmCustomPropertyValue)bag.GetProperty(key); } catch { }
 
                     if (cur != null)
                     {
                         string old = "";
                         try { object o = cur.GetValue(); old = o == null ? "" : o.ToString(); } catch { }
-                        if (old == (kv.Value ?? "")) continue;   // khong doi -> bo qua
+                        if (old == value) continue;   // khong doi -> bo qua, giu nguyen prop
 
-                        // Sua thang tren object co san (giu flags/kieu) roi ghi lai -> on dinh hon tao moi.
-                        cur.SetValue(kv.Value ?? "");
-                        bag.SetProperty(kv.Key, cur);
+                        // Sua thang tren object co san (giu flags/kieu) roi ghi lai -> on dinh, khong mat prop.
+                        cur.SetValue(value);
+                        bag.SetProperty(key, cur);
                     }
                     else
                     {
-                        // Prop chua co o cap sheet (dang lay gia tri ke thua tu Sheet Set) -> tao moi roi gan.
+                        // Prop chua co o cap sheet -> chi tao moi khi that su co gia tri (tranh tao rac).
+                        if (value.Length == 0) continue;
                         AcSm.AcSmCustomPropertyValue val = new AcSm.AcSmCustomPropertyValue();
-                        val.SetValue(kv.Value ?? "");
-                        bag.SetProperty(kv.Key, val);
+                        val.SetValue(value);
+                        bag.SetProperty(key, val);
                     }
                 }
                 catch (Exception ex)
                 {
-                    res.Warnings.Add("Custom '" + kv.Key + "' @ '" + title + "': " + ex.Message);
+                    res.Warnings.Add("Custom '" + key + "' @ '" + title + "': " + ex.Message);
                 }
             }
         }

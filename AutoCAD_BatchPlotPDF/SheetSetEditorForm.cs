@@ -198,6 +198,9 @@ namespace BatchPlotPdf
                 s.Revision = Str(row, "Rev");
                 s.RevisionDate = Str(row, "RevDate");
                 s.IssuePurpose = Str(row, "Purpose");
+                // Chi ghi nguoc dung cac cot custom form quan ly (CONT, SHT) -> khong dung
+                // toi cac custom property cap Sheet Set khac (Client, Project...) de tranh mat.
+                s.EditableCustomKeys = _customKeys;
                 foreach (var k in _customKeys)
                     s.Custom[k] = Str(row, "cust::" + k);
             }
