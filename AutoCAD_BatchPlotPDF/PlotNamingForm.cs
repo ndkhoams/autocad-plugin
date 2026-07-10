@@ -125,7 +125,7 @@ namespace BatchPlotPdf
             dgv.Columns.Add("File", "Tên file PDF");
             dgv.Columns["Sheet"].ReadOnly = true;
             dgv.Columns["File"].ReadOnly = true;
-            // commit tick ngay khi bam (khong can roi o)
+            // commit tick ngay khi bam (khong can roi o) test
             dgv.CurrentCellDirtyStateChanged += (s, e) =>
             { if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             dgv.CellValueChanged += (s, e) =>

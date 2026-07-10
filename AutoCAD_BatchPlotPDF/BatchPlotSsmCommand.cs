@@ -161,7 +161,7 @@ namespace BatchPlotPdf
             ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
         }
 
-        // Publish 1 hoac nhieu DsdEntry ra PDF. Dat BACKGROUNDPLOT=0 de chay foreground (dong bo);
+        // Publish 1 hoac nhieu DsdEntry ra PDF. Dat BACKGROUNDPLOT=0 de chay foreground (dong bo); test
         // patch PromptForDwgName=FALSE de khong hien hop thoai hoi ten file.
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {

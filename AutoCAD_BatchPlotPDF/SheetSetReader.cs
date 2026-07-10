@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using AcSm = ACSMCOMPONENTS24Lib;   // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop
+using AcSm = ACSMCOMPONENTS24Lib;   // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop test
 
 namespace BatchPlotPdf
 {
