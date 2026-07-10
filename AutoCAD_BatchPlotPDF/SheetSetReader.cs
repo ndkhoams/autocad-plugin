@@ -59,12 +59,13 @@ namespace BatchPlotPdf
                         Number = Safe(() => sheet.GetNumber()),
                         Title = Safe(() => sheet.GetTitle()),
                         Desc = Safe(() => sheet.GetDesc()),
-                        // Cac truong revision (theo hop thoai Sheet Properties). Neu typelib khac
-                        // ten ham (GetRevisionNumber/GetRevisionDate/GetPurpose), F12 kiem tra roi
-                        // chinh cho khop; hoac bo dong nao khong ton tai.
-                        Revision = Safe(() => sheet.GetRevisionNumber()),
-                        RevisionDate = Safe(() => sheet.GetRevisionDate()),
-                        IssuePurpose = Safe(() => sheet.GetPurpose())
+                        // Revision/issue KHONG phai method chuan cua IAcSmSheet tren moi typelib
+                        // (build bao CS1061 GetRevisionNumber/GetRevisionDate/GetPurpose). Dung
+                        // late-binding (IDispatch) thu nhieu ten ham -> khong loi compile; neu
+                        // khong method nao ton tai thi lat sang doc custom property bag ben duoi.
+                        Revision = TryGet(sheet, "GetRevisionNumber", "GetRevision", "GetSheetRevisionNumber"),
+                        RevisionDate = TryGet(sheet, "GetRevisionDate", "GetSheetRevisionDate"),
+                        IssuePurpose = TryGet(sheet, "GetPurpose", "GetIssuePurpose", "GetSheetIssuePurpose")
                     };
 
                     try
@@ -83,6 +84,18 @@ namespace BatchPlotPdf
                     foreach (var kv in ssCustom) si.Custom[kv.Key] = kv.Value;
                     foreach (var kv in ReadCustomProps(sheet.GetCustomPropertyBag()))
                         si.Custom[kv.Key] = kv.Value;
+
+                    // Neu khong lay duoc qua method, thu tim revision/issue trong custom properties
+                    // (mot so bo Sheet Set luu cac truong nay duoi dang custom property).
+                    if (string.IsNullOrEmpty(si.Revision))
+                        si.Revision = FromCustom(si.Custom, "Revision", "RevisionNumber",
+                            "Sheet revision number", "Revision Number");
+                    if (string.IsNullOrEmpty(si.RevisionDate))
+                        si.RevisionDate = FromCustom(si.Custom, "RevisionDate",
+                            "Sheet revision date", "Revision Date");
+                    if (string.IsNullOrEmpty(si.IssuePurpose))
+                        si.IssuePurpose = FromCustom(si.Custom, "IssuePurpose", "Purpose",
+                            "Sheet issue purpose", "Issue Purpose");
 
                     outList.Add(si);
                 }
@@ -121,6 +134,41 @@ namespace BatchPlotPdf
         private static string Safe(Func<string> f)
         {
             try { return f() ?? ""; } catch { return ""; }
+        }
+
+        // Goi method COM theo ten qua late-binding (IDispatch). Thu lan luot cac ten; ten nao
+        // ton tai & tra ve gia tri thi dung. Ten khong ton tai -> bo qua, KHONG loi compile.
+        // Neu Object Browser cho thay ten dung khac, chi can them ten do vao danh sach.
+        private static string TryGet(object com, params string[] methodNames)
+        {
+            if (com == null) return "";
+            foreach (var m in methodNames)
+            {
+                try
+                {
+                    object r = com.GetType().InvokeMember(m,
+                        System.Reflection.BindingFlags.InvokeMethod, null, com, null);
+                    if (r != null)
+                    {
+                        string s = r.ToString();
+                        if (!string.IsNullOrEmpty(s)) return s;
+                    }
+                }
+                catch { }
+            }
+            return "";
+        }
+
+        // Lay gia tri custom property dau tien khop mot trong cac ten (khong phan biet hoa thuong).
+        private static string FromCustom(Dictionary<string, string> custom, params string[] keys)
+        {
+            if (custom == null) return "";
+            foreach (var k in keys)
+            {
+                string v;
+                if (custom.TryGetValue(k, out v) && !string.IsNullOrEmpty(v)) return v;
+            }
+            return "";
         }
     }
 }
