@@ -74,7 +74,7 @@ namespace BatchPlotPdf
 
     public class BatchPlotSsmCommand
     {
-        [CommandMethod("BATCHPDFSSM", CommandFlags.Session)]
+        [CommandMethod("MTECH", CommandFlags.Session)]
         public void BatchPdfSsm()
         {
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
@@ -188,13 +188,12 @@ namespace BatchPlotPdf
                 dsd.SetDsdEntryCollection(entries);
                 dsd.WriteDsd(dsdFile);
 
-                // DSD la file ANSI theo code page he thong; doc/ghi UTF-8 se lam hong ky tu
-                // tieng Viet VA khien ReadDsd bo qua PromptForDwgName (nen hop thoai
-                // "Specify PDF File" van hien). Dung Encoding.Default (ANSI).
+                // DSD la file ANSI theo code page he thong (doc/ghi UTF-8 lam hong tieng Viet).
+                // THU PHAM chinh cua hop thoai "Specify PDF File" lap lai la dong PromptForDwgName:
+                // AutoCAD co the ghi =TRUE hoac khac case, nen .Replace("...=TRUE",...) truoc day
+                // KHONG an. Nay ep FALSE theo TUNG DONG va chen vao [Target] neu thieu.
                 var enc = Encoding.Default;
-                string txt = File.ReadAllText(dsdFile, enc)
-                    .Replace("PromptForDwgName=TRUE", "PromptForDwgName=FALSE");
-                File.WriteAllText(dsdFile, txt, enc);
+                ForceNoPrompt(dsdFile, enc);
                 dsd.ReadDsd(dsdFile);
 
                 AcadApp.Publisher.PublishExecute(
@@ -212,6 +211,28 @@ namespace BatchPlotPdf
                 AcadApp.SetSystemVariable("FILEDIA", filedia);
                 if (File.Exists(dsdFile)) File.Delete(dsdFile);
             }
+        }
+
+        // Ep DSD khong hoi ten file: sua MOI dong PromptForDwgName thanh FALSE (khong phan biet
+        // hoa thuong / khoang trang) va CHEN vao ngay sau [Target] neu khong co dong nao.
+        private static void ForceNoPrompt(string dsdFile, Encoding enc)
+        {
+            try
+            {
+                var lines = new List<string>(File.ReadAllLines(dsdFile, enc));
+                bool found = false; int targetIdx = -1;
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    string t = lines[i].Trim();
+                    if (t.StartsWith("[Target]", StringComparison.OrdinalIgnoreCase)) targetIdx = i;
+                    if (t.StartsWith("PromptForDwgName", StringComparison.OrdinalIgnoreCase))
+                    { lines[i] = "PromptForDwgName=FALSE"; found = true; }
+                }
+                if (!found && targetIdx >= 0)
+                    lines.Insert(targetIdx + 1, "PromptForDwgName=FALSE");
+                File.WriteAllLines(dsdFile, lines, enc);
+            }
+            catch { }
         }
     }
 }
