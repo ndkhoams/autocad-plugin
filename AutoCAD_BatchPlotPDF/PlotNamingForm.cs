@@ -141,15 +141,53 @@ namespace BatchPlotPdf
 
             var lblHint = new Label
             {
-                Text = "Mẹo: giữ Shift rồi tích để chọn/bỏ chọn cả một dải hàng.",
+                Text = "Mẹo: giữ Shift rồi tích để chọn/bỏ cả dải; cột Rev sửa trực tiếp được.",
                 Left = 20,
                 Top = 240,
-                Width = 720,
+                Width = 440,
                 Height = 22,
                 ForeColor = Color.Gray,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left
             };
             Controls.Add(lblHint);
+
+            // Dat nhanh Rev cho tat ca sheet dang duoc chon (tick)
+            var lblBulk = new Label
+            {
+                Text = "Rev chung:",
+                Left = 470,
+                Top = 240,
+                Width = 72,
+                Height = 22,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            Controls.Add(lblBulk);
+            var txtBulkRev = new TextBox
+            {
+                Left = 544,
+                Top = 238,
+                Width = 110,
+                Height = 24,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            Controls.Add(txtBulkRev);
+            var btnBulk = new Button
+            {
+                Text = "Đặt cho sheet đã chọn",
+                Left = 662,
+                Top = 236,
+                Width = 232,
+                Height = 28,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnBulk.Click += (s, e) =>
+            {
+                string rev = txtBulkRev.Text.Trim();
+                foreach (var sh in _sheets) if (!_excluded.Contains(sh)) sh.Revision = rev;
+                RefreshPreview();
+            };
+            Controls.Add(btnBulk);
 
             dgv = new DataGridView
             {
@@ -183,7 +221,7 @@ namespace BatchPlotPdf
             dgv.Columns.Add("Rev", "Rev");
             dgv.Columns.Add("File", "Tên file PDF");
             dgv.Columns["Sheet"].ReadOnly = true;
-            dgv.Columns["Rev"].ReadOnly = true;
+            dgv.Columns["Rev"].ReadOnly = false;   // cho sua Rev truc tiep tren luoi
             dgv.Columns["File"].ReadOnly = true;
             dgv.Columns["Sheet"].FillWeight = 42;
             dgv.Columns["Rev"].FillWeight = 12;
@@ -201,7 +239,23 @@ namespace BatchPlotPdf
             };
             dgv.CellValueChanged += (s, e) =>
             {
-                if (_bulk || e.RowIndex < 0 || e.ColumnIndex != 0) return;
+                if (_bulk || e.RowIndex < 0) return;
+
+                // Sua truc tiep cot Rev -> cap nhat Revision & ten file cua rieng hang do
+                if (e.ColumnIndex == dgv.Columns["Rev"].Index)
+                {
+                    var sh0 = dgv.Rows[e.RowIndex].Tag as SheetInfo;
+                    if (sh0 != null)
+                    {
+                        sh0.Revision = Convert.ToString(dgv.Rows[e.RowIndex].Cells["Rev"].Value ?? "").Trim();
+                        string nm = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, sh0, false));
+                        if (string.IsNullOrWhiteSpace(nm)) nm = sh0.LayoutName;
+                        dgv.Rows[e.RowIndex].Cells["File"].Value = SsmNaming.EnsurePdf(nm);
+                    }
+                    return;
+                }
+
+                if (e.ColumnIndex != 0) return;
                 var row = dgv.Rows[e.RowIndex];
                 var sheet = row.Tag as SheetInfo;
                 if (sheet == null) return;

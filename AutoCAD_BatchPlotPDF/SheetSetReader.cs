@@ -37,18 +37,13 @@ namespace BatchPlotPdf
                 string ssName = Safe(() => ss.GetName());
                 var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-                // Du phong: neu COM khong lo ra revision, doc thang tu file .dst (sheet set
-                // database o dang XML). Lay duong dan .dst tu chinh IAcSmDatabase.
-                string dstPath = ScanInvoke(db, new[] { "FileName" }, null);
-                var revMap = ReadDstRevisions(dstPath);
-
-                CollectSheets(ss, ssName, ssCustom, revMap, result);
+                CollectSheets(ss, ssName, ssCustom, result);
             }
             return result;
         }
 
         private static void CollectSheets(AcSm.IAcSmSubset subset, string ssName,
-            Dictionary<string, string> ssCustom, Dictionary<string, string[]> revMap, List<SheetInfo> outList)
+            Dictionary<string, string> ssCustom, List<SheetInfo> outList)
         {
             AcSm.IAcSmEnumComponent en = subset.GetSheetEnumerator();
             en.Reset();
@@ -104,24 +99,12 @@ namespace BatchPlotPdf
                         si.IssuePurpose = FromCustom(si.Custom, "IssuePurpose", "Purpose",
                             "Sheet issue purpose", "Issue Purpose");
 
-                    // Cuoi cung: neu van trong, lay tu du lieu doc thang trong file .dst theo so sheet.
-                    if (revMap != null && !string.IsNullOrEmpty(si.Number))
-                    {
-                        string[] rv;
-                        if (revMap.TryGetValue(si.Number, out rv))
-                        {
-                            if (string.IsNullOrEmpty(si.Revision)) si.Revision = rv[0];
-                            if (string.IsNullOrEmpty(si.RevisionDate)) si.RevisionDate = rv[1];
-                            if (string.IsNullOrEmpty(si.IssuePurpose)) si.IssuePurpose = rv[2];
-                        }
-                    }
-
                     outList.Add(si);
                 }
                 else
                 {
                     var sub = comp as AcSm.IAcSmSubset;
-                    if (sub != null) CollectSheets(sub, ssName, ssCustom, revMap, outList);
+                    if (sub != null) CollectSheets(sub, ssName, ssCustom, outList);
                 }
             }
         }
@@ -198,69 +181,6 @@ namespace BatchPlotPdf
                         }
                         catch { }
                     }
-                }
-            }
-            catch { }
-            return "";
-        }
-
-        // Du phong doc revision truc tiep tu file .dst (sheet set database dang XML) khi COM khong
-        // lo ra. Tra ve map: so sheet -> { revision, revisionDate, issuePurpose }. Best-effort:
-        // neu schema .dst khac, ham nem & tra ve rong (khong lam hong luong chinh).
-        private static Dictionary<string, string[]> ReadDstRevisions(string dstPath)
-        {
-            var map = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                if (string.IsNullOrEmpty(dstPath) || !System.IO.File.Exists(dstPath)) return map;
-                string text = System.IO.File.ReadAllText(dstPath);
-                var blocks = System.Text.RegularExpressions.Regex.Matches(
-                    text, "<AcSmSheet[ >].*?</AcSmSheet>",
-                    System.Text.RegularExpressions.RegexOptions.Singleline);
-                foreach (System.Text.RegularExpressions.Match b in blocks)
-                {
-                    string blk = b.Value;
-                    string num = TagVal(blk, "Number");
-                    string rev = TagContains(blk, "Revision", "Date");
-                    string date = TagContains(blk, "RevisionDate", null);
-                    string purp = TagContains(blk, "Purpose", null);
-                    if (string.IsNullOrEmpty(purp)) purp = TagContains(blk, "Issue", null);
-                    if (!string.IsNullOrEmpty(num) && !map.ContainsKey(num))
-                        map[num] = new[] { rev, date, purp };
-                }
-            }
-            catch { }
-            return map;
-        }
-
-        // Lay <Tag>value</Tag> theo ten chinh xac.
-        private static string TagVal(string blk, string tag)
-        {
-            try
-            {
-                var m = System.Text.RegularExpressions.Regex.Match(
-                    blk, "<" + tag + ">([^<]*)</" + tag + ">",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                return m.Success ? m.Groups[1].Value.Trim() : "";
-            }
-            catch { return ""; }
-        }
-
-        // Lay tag dau tien co TEN chua 'contains' nhung KHONG chua 'exclude'.
-        private static string TagContains(string blk, string contains, string exclude)
-        {
-            try
-            {
-                var ms = System.Text.RegularExpressions.Regex.Matches(
-                    blk, "<([A-Za-z0-9_]*" + contains + "[A-Za-z0-9_]*)>([^<]*)</\\1>",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                foreach (System.Text.RegularExpressions.Match m in ms)
-                {
-                    string name = m.Groups[1].Value;
-                    if (!string.IsNullOrEmpty(exclude) &&
-                        name.IndexOf(exclude, StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                    string v = m.Groups[2].Value.Trim();
-                    if (!string.IsNullOrEmpty(v)) return v;
                 }
             }
             catch { }

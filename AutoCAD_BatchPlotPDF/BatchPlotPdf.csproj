@@ -2,6 +2,7 @@
 	<PropertyGroup>
 		<TargetFramework>net48</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
+		<UseWPF>true</UseWPF>
 		<LangVersion>latest</LangVersion>
 		<PlatformTarget>x64</PlatformTarget>
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -19,6 +20,11 @@
 		</Reference>
 		<Reference Include="accoremgd">
 			<HintPath>$(AcadRoot)accoremgd.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<!-- Ribbon UI: RibbonControl/RibbonTab/RibbonButton/ComponentManager nam trong AdWindows.dll -->
+		<Reference Include="AdWindows">
+			<HintPath>$(AcadRoot)AdWindows.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
