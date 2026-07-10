@@ -54,8 +54,8 @@ namespace BatchPlotPdf
                     {
                         SheetSetName = ssName,
                         Number = Safe(() => sheet.GetNumber()),
-                        Title  = Safe(() => sheet.GetTitle()),
-                        Desc   = Safe(() => sheet.GetDesc())
+                        Title = Safe(() => sheet.GetTitle()),
+                        Desc = Safe(() => sheet.GetDesc())
                     };
 
                     try
@@ -94,7 +94,7 @@ namespace BatchPlotPdf
                 AcSm.IAcSmEnumProperty pe = bag.GetPropertyEnumerator();
                 pe.Reset();
                 string name;
-                AcSm.AcSmCustomPropertyValue val;
+                AcSm.IAcSmCustomPropertyValue val;
                 pe.Next(out name, out val);
                 while (!string.IsNullOrEmpty(name))
                 {

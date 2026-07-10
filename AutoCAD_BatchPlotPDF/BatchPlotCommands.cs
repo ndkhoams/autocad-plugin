@@ -40,78 +40,71 @@ namespace BatchPlotPdf
             string baseName = Path.GetFileNameWithoutExtension(db.Filename);
             int count = 0;
 
-            // BAT BUOC khi dung PlotEngine (foreground): tat in nen, neu khong se loi eInvalidInput
-            short bp = (short)AcadApp.GetSystemVariable("BACKGROUNDPLOT");
-            AcadApp.SetSystemVariable("BACKGROUNDPLOT", 0);
-            try
+            using (doc.LockDocument())
+            using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                using (doc.LockDocument())
-                using (Transaction tr = db.TransactionManager.StartTransaction())
+                var layouts = GetLayouts(db, tr);
+                if (layouts.Count == 0) { ed.WriteMessage("\nKhông có layout nào để in."); return; }
+
+                using (PlotProgressDialog ppd = new PlotProgressDialog(false, layouts.Count, true))
+                using (PlotEngine engine = PlotFactory.CreatePublishEngine())
                 {
-                    var layouts = GetLayouts(db, tr);
-                    if (layouts.Count == 0) { ed.WriteMessage("\nKhông có layout nào để in."); return; }
+                    ppd.set_PlotMsgString(PlotMessageIndex.DialogTitle, "In hàng loạt ra PDF");
+                    ppd.LowerPlotProgressRange = 0;
+                    ppd.UpperPlotProgressRange = 100;
+                    ppd.PlotProgressPos = 0;
+                    ppd.OnBeginPlot();
+                    ppd.IsVisible = true;
 
-                    using (PlotProgressDialog ppd = new PlotProgressDialog(false, layouts.Count, true))
-                    using (PlotEngine engine = PlotFactory.CreatePublishEngine())
+                    engine.BeginPlot(ppd, null);
+
+                    foreach (Layout lo in layouts)
                     {
-                        ppd.set_PlotMsgString(PlotMessageIndex.DialogTitle, "In hàng loạt ra PDF");
-                        ppd.LowerPlotProgressRange = 0;
-                        ppd.UpperPlotProgressRange = 100;
-                        ppd.PlotProgressPos = 0;
-                        ppd.OnBeginPlot();
-                        ppd.IsVisible = true;
+                        ppd.set_PlotMsgString(PlotMessageIndex.Status, "Đang in: " + lo.LayoutName);
+                        ppd.OnBeginSheet();
+                        ppd.LowerSheetProgressRange = 0;
+                        ppd.UpperSheetProgressRange = 100;
+                        ppd.SheetProgressPos = 0;
 
-                        engine.BeginPlot(ppd, null);
+                        PlotInfo pi = new PlotInfo { Layout = lo.ObjectId };
+                        PlotSettings ps = new PlotSettings(lo.ModelType);
+                        ps.CopyFrom(lo);
+                        PlotSettingsValidator psv = PlotSettingsValidator.Current;
+                        psv.SetPlotConfigurationName(ps, "DWG To PDF.pc3", null);
+                        psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.Layout);
+                        psv.SetUseStandardScale(ps, true);
+                        psv.SetStdScaleType(ps, StdScaleType.StdScale1To1);
+                        psv.SetPlotCentered(ps, true);
+                        pi.OverrideSettings = ps;
 
-                        foreach (Layout lo in layouts)
+                        PlotInfoValidator piv = new PlotInfoValidator
                         {
-                            ppd.set_PlotMsgString(PlotMessageIndex.Status, "Đang in: " + lo.LayoutName);
-                            ppd.OnBeginSheet();
-                            ppd.LowerSheetProgressRange = 0;
-                            ppd.UpperSheetProgressRange = 100;
-                            ppd.SheetProgressPos = 0;
+                            MediaMatchingPolicy = MatchingPolicy.MatchEnabled
+                        };
+                        piv.Validate(pi);
 
-                            PlotInfo pi = new PlotInfo { Layout = lo.ObjectId };
-                            PlotSettings ps = new PlotSettings(lo.ModelType);
-                            ps.CopyFrom(lo);
-                            PlotSettingsValidator psv = PlotSettingsValidator.Current;
-                            psv.SetPlotConfigurationName(ps, "DWG To PDF.pc3", null);
-                            psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.Layout);
-                            psv.SetUseStandardScale(ps, true);
-                            psv.SetStdScaleType(ps, StdScaleType.StdScale1To1);
-                            psv.SetPlotCentered(ps, true);
-                            pi.OverrideSettings = ps;
+                        string file = Path.Combine(outDir, baseName + " - " + Sanitize(lo.LayoutName) + ".pdf");
 
-                            PlotInfoValidator piv = new PlotInfoValidator
-                            {
-                                MediaMatchingPolicy = MatchingPolicy.MatchEnabled
-                            };
-                            piv.Validate(pi);
+                        PlotPageInfo ppi = new PlotPageInfo();
+                        engine.BeginDocument(pi, doc.Name, null, 1, true, file);
+                        engine.BeginPage(ppi, pi, true, null);
+                        engine.BeginGenerateGraphics(null);
+                        engine.EndGenerateGraphics(null);
+                        engine.EndPage(null);
+                        engine.EndDocument(null);
 
-                            string file = Path.Combine(outDir, baseName + " - " + Sanitize(lo.LayoutName) + ".pdf");
-
-                            PlotPageInfo ppi = new PlotPageInfo();
-                            engine.BeginDocument(pi, doc.Name, null, 1, true, file);
-                            engine.BeginPage(ppi, pi, true, null);
-                            engine.BeginGenerateGraphics(null);
-                            engine.EndGenerateGraphics(null);
-                            engine.EndPage(null);
-                            engine.EndDocument(null);
-
-                            ppd.SheetProgressPos = 100;
-                            ppd.OnEndSheet();
-                            count++;
-                            ppd.PlotProgressPos = (int)(100.0 * count / layouts.Count);
-                        }
-
-                        engine.EndPlot(null);
-                        ppd.PlotProgressPos = 100;
-                        ppd.OnEndPlot();
+                        ppd.SheetProgressPos = 100;
+                        ppd.OnEndSheet();
+                        count++;
+                        ppd.PlotProgressPos = (int)(100.0 * count / layouts.Count);
                     }
-                    tr.Commit();
+
+                    engine.EndPlot(null);
+                    ppd.PlotProgressPos = 100;
+                    ppd.OnEndPlot();
                 }
+                tr.Commit();
             }
-            finally { AcadApp.SetSystemVariable("BACKGROUNDPLOT", bp); }
             ed.WriteMessage("\nĐã in {0} layout ra PDF trong: {1}", count, outDir);
         }
 
@@ -162,9 +155,12 @@ namespace BatchPlotPdf
 
             string dsdFile = Path.Combine(outDir, "_batch.dsd");
             dsd.WriteDsd(dsdFile);
-            string txt = File.ReadAllText(dsdFile)
+            // DSD la file ANSI theo code page he thong; doc/ghi UTF-8 se lam hong tieng Viet
+            // va khien ReadDsd bo qua PromptForDwgName (van hien hop thoai). Dung Encoding.Default (ANSI).
+            var enc = System.Text.Encoding.Default;
+            string txt = File.ReadAllText(dsdFile, enc)
                 .Replace("PromptForDwgName=TRUE", "PromptForDwgName=FALSE");
-            File.WriteAllText(dsdFile, txt);
+            File.WriteAllText(dsdFile, txt, enc);
             dsd.ReadDsd(dsdFile);
 
             try
