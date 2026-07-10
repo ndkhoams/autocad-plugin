@@ -102,29 +102,37 @@ namespace BatchPlotPdf
             if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
             { ed.WriteMessage("\nĐang có tiến trình in khác, thử lại sau."); return; }
 
+            // BAT BUOC khi dung PlotEngine (foreground): tat in nen, neu khong moi sheet se loi eInvalidInput
+            short bp = (short)AcadApp.GetSystemVariable("BACKGROUNDPLOT");
+            AcadApp.SetSystemVariable("BACKGROUNDPLOT", 0);
+
             int ok = 0;
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             using (doc.LockDocument())
             {
-                foreach (var s in sheets)
+                try
                 {
-                    if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
-                    { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
-
-                    string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false));
-                    if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
-                    string baseName = name; int n = 2;
-                    while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
-                    string file = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
-
-                    try
+                    foreach (var s in sheets)
                     {
-                        PlotLayoutFromFile(doc.Database, s.DwgPath, s.LayoutName, file);
-                        ok++;
-                        ed.WriteMessage("\n[OK] " + Path.GetFileName(file));
+                        if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
+                        { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
+
+                        string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false));
+                        if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
+                        string baseName = name; int n = 2;
+                        while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
+                        string file = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
+
+                        try
+                        {
+                            PlotLayoutFromFile(doc.Database, s.DwgPath, s.LayoutName, file);
+                            ok++;
+                            ed.WriteMessage("\n[OK] " + Path.GetFileName(file));
+                        }
+                        catch (Exception ex) { ed.WriteMessage("\n[LỖI] " + s.Title + ": " + ex.Message); }
                     }
-                    catch (Exception ex) { ed.WriteMessage("\n[LỖI] " + s.Title + ": " + ex.Message); }
                 }
+                finally { AcadApp.SetSystemVariable("BACKGROUNDPLOT", bp); }
             }
             ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
         }
