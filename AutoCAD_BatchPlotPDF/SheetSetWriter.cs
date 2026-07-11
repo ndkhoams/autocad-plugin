@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections;
 using Autodesk.AutoCAD.EditorInput;
 using AcSm = ACSMCOMPONENTS24Lib; // COM AcSm: doi so phien ban cho khop
 

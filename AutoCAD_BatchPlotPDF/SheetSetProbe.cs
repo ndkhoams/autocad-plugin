@@ -118,8 +118,8 @@ namespace CADtools
             }
 
             string path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                "ssm_probe.txt");
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "ssm_probe.txt");
             try
             {
                 File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
@@ -138,8 +138,8 @@ namespace CADtools
         private static bool Match(string n)
         {
             return n.IndexOf("Rev", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("Purpose", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("Issue", StringComparison.OrdinalIgnoreCase) >= 0;
+            || n.IndexOf("Purpose", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Issue", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         // Liet ke moi custom property (ten + gia tri + flags).
@@ -158,7 +158,7 @@ namespace CADtools
                     string v = "";
                     try { object o = val.GetValue(); v = o == null ? "" : o.ToString(); } catch { }
                     object flags = null; try { flags = val.GetFlags(); } catch { }
-                    sb.AppendLine("  [" + name + "] = \"" + v + "\"  (flags=" + flags + ")");
+                    sb.AppendLine(" [" + name + "] = \"" + v + "\" (flags=" + flags + ")");
                     c++; name = null; val = null;
                     pe.Next(out name, out val);
                 }
@@ -170,16 +170,16 @@ namespace CADtools
         // Doc 1 property theo ten tu 1 bag, in gia tri + kieu VARIANT + flags de so sanh cach doc.
         private static void ProbeOne(string label, AcSm.IAcSmCustomPropertyBag bag, string key, StringBuilder sb)
         {
-            if (bag == null) { sb.AppendLine("  " + label + " [" + key + "]: (bag null)"); return; }
+            if (bag == null) { sb.AppendLine(" " + label + " [" + key + "]: (bag null)"); return; }
             AcSm.AcSmCustomPropertyValue v = null;
             try { v = (AcSm.AcSmCustomPropertyValue)bag.GetProperty(key); }
-            catch (Exception ex) { sb.AppendLine("  " + label + " [" + key + "]: GetProperty loi: " + ex.Message); return; }
-            if (v == null) { sb.AppendLine("  " + label + " [" + key + "]: (khong co / null)"); return; }
-            object val = null; try { val = v.GetValue(); } catch (Exception ex) { sb.AppendLine("  " + label + " [" + key + "]: GetValue loi: " + ex.Message); return; }
+            catch (Exception ex) { sb.AppendLine(" " + label + " [" + key + "]: GetProperty loi: " + ex.Message); return; }
+            if (v == null) { sb.AppendLine(" " + label + " [" + key + "]: (khong co / null)"); return; }
+            object val = null; try { val = v.GetValue(); } catch (Exception ex) { sb.AppendLine(" " + label + " [" + key + "]: GetValue loi: " + ex.Message); return; }
             object fl = null; try { fl = v.GetFlags(); } catch { }
-            string tp = val == null ? "<null>" : val.GetType().FullName;
-            sb.AppendLine("  " + label + " [" + key + "]: value=\"" + (val == null ? "" : val.ToString())
-                + "\"  type=" + tp + "  flags=" + fl);
+            string tp = val == null ? " " : val.GetType().FullName;
+            sb.AppendLine(" " + label + " [" + key + "]: value=\"" + (val == null ? "" : val.ToString())
+            + "\" type=" + tp + " flags=" + fl);
         }
 
         // Liet ke chu ky moi method cua 1 interface/coclass (de tim ham doc gia tri 'that').
@@ -193,7 +193,7 @@ namespace CADtools
                     var ps = m.GetParameters();
                     var args = new List<string>();
                     foreach (var p in ps) args.Add(p.ParameterType.Name + " " + p.Name);
-                    sb.AppendLine("  " + m.Name + "(" + string.Join(", ", args.ToArray()) + ") : " + m.ReturnType.Name);
+                    sb.AppendLine(" " + m.Name + "(" + string.Join(", ", args.ToArray()) + ") : " + m.ReturnType.Name);
                 }
             }
             catch (Exception ex) { sb.AppendLine("(loi: " + ex.Message + ")"); }
@@ -203,7 +203,7 @@ namespace CADtools
         // tranh quet ca assembly lam load Interop.AXDBLib). Bao ve tung method bang try rieng.
         private static void InvokeGetters(object com, Type[] types, string keyword, StringBuilder sb)
         {
-            if (com == null) { sb.AppendLine("  (com null)"); return; }
+            if (com == null) { sb.AppendLine(" (com null)"); return; }
             foreach (var t in types)
             {
                 var ms = t.GetMethods();
@@ -215,9 +215,9 @@ namespace CADtools
                         if (m.ReturnType == typeof(void)) continue;
                         if (m.Name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0) continue;
                         object r = m.Invoke(com, null);
-                        sb.AppendLine("  " + t.Name + "." + m.Name + "() -> \"" + (r == null ? "<null>" : r.ToString()) + "\"");
+                        sb.AppendLine(" " + t.Name + "." + m.Name + "() -> \"" + (r == null ? " " : r.ToString()) + "\"");
                     }
-                    catch (Exception ex) { sb.AppendLine("  " + t.Name + "." + m.Name + "() LOI: " + ex.Message); }
+                    catch (Exception ex) { sb.AppendLine(" " + t.Name + "." + m.Name + "() LOI: " + ex.Message); }
                 }
             }
         }
@@ -239,7 +239,7 @@ namespace CADtools
                         try
                         {
                             object r = m.Invoke(com, null);
-                            sb.AppendLine("  " + t.Name + "." + m.Name + "() -> \"" + (r == null ? "<null>" : r.ToString()) + "\"");
+                            sb.AppendLine(" " + t.Name + "." + m.Name + "() -> \"" + (r == null ? " " : r.ToString()) + "\"");
                         }
                         catch { }
                     }
@@ -263,8 +263,8 @@ namespace CADtools
                         var ps = m.GetParameters();
                         var args = new List<string>();
                         foreach (var p in ps) args.Add(p.ParameterType.Name + " " + p.Name);
-                        sb.AppendLine("  " + t.Name + "." + m.Name
-                            + "(" + string.Join(", ", args.ToArray()) + ") : " + m.ReturnType.Name);
+                        sb.AppendLine(" " + t.Name + "." + m.Name
+                        + "(" + string.Join(", ", args.ToArray()) + ") : " + m.ReturnType.Name);
                     }
                 }
             }

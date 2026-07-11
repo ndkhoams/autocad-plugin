@@ -47,7 +47,7 @@ namespace CADtools
             tab.Panels.Add(new RibbonPanel { Source = src });
 
             src.Items.Add(MakeButton("SSP", "Sheet Set Properties", "SSP ",
-                "Quản lý Sheet Set, in ấn PDF."));
+            "Quản lý Sheet Set, in ấn PDF."));
         }
 
         // macro ket thuc bang dau cach = Enter (chay lenh ngay).
@@ -58,7 +58,7 @@ namespace CADtools
                 Id = "SSP_" + id,
                 Text = text,
                 ShowText = true,
-                ShowImage = false,   // chua co icon; dat true + LargeImage neu muon hien icon
+                ShowImage = false, // chua co icon; dat true + LargeImage neu muon hien icon
                 Size = RibbonItemSize.Large,
                 Orientation = System.Windows.Controls.Orientation.Vertical,
                 CommandParameter = macro,

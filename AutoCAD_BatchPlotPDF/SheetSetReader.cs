@@ -7,6 +7,7 @@ namespace CADtools
 {
     public class SheetInfo
     {
+        public string SubsetPath = "";
         public string SheetSetName = "";
         public string Number = "";
         public string Title = "";
@@ -43,7 +44,7 @@ namespace CADtools
                 string ssName = Safe(() => ss.GetName());
                 var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-                CollectSheets(ss, db, ssName, ssCustom, result);
+                CollectSheets(ss, db, ssName, ssCustom, result, "");
             }
             return result;
         }
@@ -67,12 +68,12 @@ namespace CADtools
             string ssName = Safe(() => ss.GetName());
             var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-            CollectSheets(ss, db, ssName, ssCustom, result);
+            CollectSheets(ss, db, ssName, ssCustom, result, "");
             return result;
         }
 
         private static void CollectSheets(AcSm.IAcSmSubset subset, AcSm.IAcSmDatabase db, string ssName,
-        Dictionary<string, string> ssCustom, List<SheetInfo> outList)
+        Dictionary<string, string> ssCustom, List<SheetInfo> outList, string subsetPath)
         {
             AcSm.IAcSmEnumComponent en = subset.GetSheetEnumerator();
             en.Reset();
@@ -85,6 +86,7 @@ namespace CADtools
                     var s2 = sheet as AcSm.IAcSmSheet2;
                     var si = new SheetInfo
                     {
+                        SubsetPath = subsetPath ?? "",
                         SheetSetName = ssName,
                         Number = Safe(() => sheet.GetNumber()),
                         Title = Safe(() => sheet.GetTitle()),
@@ -128,7 +130,13 @@ namespace CADtools
                 else
                 {
                     var sub = comp as AcSm.IAcSmSubset;
-                    if (sub != null) CollectSheets(sub, db, ssName, ssCustom, outList);
+                    if (sub != null)
+                    {
+                        string subName = "";
+                        try { subName = Safe(() => sub.GetName()); } catch { }
+                        string p = string.IsNullOrWhiteSpace(subsetPath) ? subName : (subsetPath + " / " + subName);
+                        CollectSheets(sub, db, ssName, ssCustom, outList, p);
+                    }
                 }
             }
         }
@@ -159,7 +167,7 @@ namespace CADtools
 
         private static string Safe(Func<string> f)
         {
-            try { return f() ?? ""; } catch { return ""; }
+            try { return (f == null ? "" : (f() ?? "")); } catch { return ""; }
         }
 
         private static string FromCustom(Dictionary<string, string> custom, params string[] keys)

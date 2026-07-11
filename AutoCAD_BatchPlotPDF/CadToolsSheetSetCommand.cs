@@ -31,7 +31,7 @@ namespace CADtools
                 map["SheetDesc"] = mergedMode ? "" : s.Desc;
                 map["LayoutName"] = mergedMode ? "" : s.LayoutName;
                 map["DwgName"] = mergedMode ? "" :
-                    (string.IsNullOrEmpty(s.DwgPath) ? "" : Path.GetFileNameWithoutExtension(s.DwgPath));
+                (string.IsNullOrEmpty(s.DwgPath) ? "" : Path.GetFileNameWithoutExtension(s.DwgPath));
                 map["Revision"] = mergedMode ? "" : s.Revision;
                 map["RevisionDate"] = mergedMode ? "" : s.RevisionDate;
                 map["IssuePurpose"] = mergedMode ? "" : s.IssuePurpose;
@@ -92,7 +92,7 @@ namespace CADtools
             Editor ed = doc.Editor;
 
             // 1) Default: doc sheet set dang mo (SSM hien hanh)
-            // NOTE: Dùng List<SheetInfo> để tránh bị nhầm với System.Collections.List (non-generic)
+            // NOTE: Dùng List để tránh bị nhầm với System.Collections.List (non-generic)
             List<SheetInfo> sheets;
             try { sheets = SheetSetReader.ReadOpenSheetSets(); }
             catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message); return; }
@@ -104,8 +104,8 @@ namespace CADtools
             }
 
             string defDir = !string.IsNullOrEmpty(doc.Database.Filename)
-                ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
+            ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
 
             // DST path that tu COM database.
             string dstPath = TryGetCurrentDstPath(sheets);
@@ -155,7 +155,7 @@ namespace CADtools
                     try { sr = SheetSetWriter.Save(allSheets, ed); }
                     catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
                     ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
-                        sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
+                    sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
                     if (sr.RevisionFail > 0)
                         ed.WriteMessage("\nRevision/Issue purpose không ghi được qua COM (bản AutoCAD này không lộ setter) — sửa trực tiếp trong hộp thoại Sheet Properties của SSM.");
                     foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
@@ -222,8 +222,9 @@ namespace CADtools
                 return;
             }
         }
+ 
 
-        private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
+ private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
         {
             try
             {
@@ -265,7 +266,7 @@ namespace CADtools
                 dsd.ReadDsd(dsdFile);
 
                 AcadApp.Publisher.PublishExecute(
-                    dsd, PlotConfigManager.SetCurrentConfig("DWG To PDF.pc3"));
+                dsd, PlotConfigManager.SetCurrentConfig("DWG To PDF.pc3"));
                 return true;
             }
             catch (Exception ex)
