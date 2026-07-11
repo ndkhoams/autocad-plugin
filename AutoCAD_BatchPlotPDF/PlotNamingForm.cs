@@ -377,6 +377,26 @@ namespace CADtools
                 catch { }
             };
 
+            // Click vào ô STT của header row để thu gọn/bung subset
+            // (CellContentClick thường chỉ bắn cho checkbox/button; ô text dùng CellClick)
+            dgv.CellClick += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                if (dgv.Columns[e.ColumnIndex].Name != "STT") return;
+
+                var r = dgv.Rows[e.RowIndex];
+                if (r != null && r.Tag is string && ((string)r.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal))
+                {
+                    string sk = "";
+                    try { sk = ((string)r.Tag).Substring("__SUBSET__".Length); } catch { sk = ""; }
+                    bool cur = false;
+                    try { cur = _subsetCollapsed.ContainsKey(sk) && _subsetCollapsed[sk]; } catch { cur = false; }
+                    _subsetCollapsed[sk] = !cur;
+                    BuildRows();
+                    UpdateAllPreviews();
+                }
+            };
+
             // Nút "..." để duyệt lại DWG cho từng sheet
             dgv.CellContentClick += (s, e) =>
             {
@@ -568,7 +588,6 @@ namespace CADtools
                 dgv.Rows.Clear();
 
                 string lastSubset = null;
-                int stt = 0;
 
                 for (int idx = 0; idx < _sheets.Count; idx++)
                 {
@@ -602,12 +621,12 @@ namespace CADtools
                     try { collapsed = _subsetCollapsed.ContainsKey(subset) && _subsetCollapsed[subset]; } catch { collapsed = false; }
                     if (collapsed) continue;
 
-                    stt++;
                     int i = dgv.Rows.Add();
                     var row = dgv.Rows[i];
                     row.Tag = s;
                     row.Cells["Sel"].Value = !_excluded.Contains(s);
-                    row.Cells["STT"].Value = stt.ToString();
+                    // STT cố định theo thứ tự gốc của danh sách sheet (idx + 1), không đổi khi collapse
+                    row.Cells["STT"].Value = (idx + 1).ToString();
                     row.Cells["Number"].Value = s.Number;
                     row.Cells["Title"].Value = s.Title;
                     row.Cells["Rev"].Value = s.Revision;

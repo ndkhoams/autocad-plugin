@@ -97,18 +97,15 @@ namespace CADtools
             try { sheets = SheetSetReader.ReadOpenSheetSets(); }
             catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message); return; }
 
-            if (sheets == null || sheets.Count == 0)
-            {
-                ed.WriteMessage("\nChưa mở Sheet Set nào trong Sheet Set Manager.");
-                return;
-            }
+            // Nếu chưa mở Sheet Set nào thì vẫn mở form để người dùng chọn file .dst.
+            if (sheets == null) sheets = new List<SheetInfo>();
 
             string defDir = !string.IsNullOrEmpty(doc.Database.Filename)
             ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
 
-            // DST path that tu COM database.
-            string dstPath = TryGetCurrentDstPath(sheets);
+            // DST path thật từ COM database (nếu không có sheet set đang mở thì để trống).
+            string dstPath = (sheets.Count > 0) ? TryGetCurrentDstPath(sheets) : "";
 
             // 2) Loop: mo form -> neu chon DST khac thi reload sheets va mo lai form
             while (true)
@@ -222,7 +219,7 @@ namespace CADtools
                 return;
             }
         }
- 
+
 
  private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
         {
