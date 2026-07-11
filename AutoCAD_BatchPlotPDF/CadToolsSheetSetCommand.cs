@@ -10,6 +10,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Windows.Forms;
+// NOTE: tránh bị nhầm List của WPF (System.Windows.Documents.List). Chỉ alias cho danh sách SheetInfo.
+using GList = System.Collections.Generic.List<CADtools.SheetInfo>;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Exception = System.Exception; // tranh nhap nhang voi Autodesk.AutoCAD.Runtime.Exception
 using AcSm = ACSMCOMPONENTS24Lib;
@@ -26,6 +28,7 @@ namespace CADtools
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (s != null)
             {
+
                 map["SheetNumber"] = mergedMode ? "" : s.Number;
                 map["SheetTitle"] = mergedMode ? "" : s.Title;
                 map["SheetDesc"] = mergedMode ? "" : s.Desc;
@@ -53,9 +56,11 @@ namespace CADtools
             {
                 if (i + 1 < template.Length && template[i] == '$' && template[i + 1] == '(')
                 {
+
                     int end = template.IndexOf(')', i + 2);
                     if (end > 0)
                     {
+
                         string key = template.Substring(i + 2, end - i - 2);
                         string val;
                         sb.Append(map.TryGetValue(key, out val) ? val : "");
@@ -70,6 +75,7 @@ namespace CADtools
 
         public static string SanitizeFile(string s)
         {
+
             if (string.IsNullOrEmpty(s)) return s;
             foreach (char c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
             return s.Trim();
@@ -77,6 +83,7 @@ namespace CADtools
 
         public static string EnsurePdf(string s)
         {
+
             if (string.IsNullOrEmpty(s)) return s;
             return s.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? s : s + ".pdf";
         }
@@ -84,21 +91,23 @@ namespace CADtools
 
     public class CadToolsSheetSetCommand
     {
+
         [CommandMethod("SSP", CommandFlags.Session)]
         public void BatchPdfSsm()
         {
+
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             Editor ed = doc.Editor;
 
             // 1) Default: doc sheet set dang mo (SSM hien hanh)
             // NOTE: Dùng List để tránh bị nhầm với System.Collections.List (non-generic)
-            List<SheetInfo> sheets;
+            GList sheets;
             try { sheets = SheetSetReader.ReadOpenSheetSets(); }
             catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message); return; }
 
             // Nếu chưa mở Sheet Set nào thì vẫn mở form để người dùng chọn file .dst.
-            if (sheets == null) sheets = new List<SheetInfo>();
+            if (sheets == null) sheets = new GList();
 
             string defDir = !string.IsNullOrEmpty(doc.Database.Filename)
             ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
@@ -110,27 +119,38 @@ namespace CADtools
             // 2) Loop: mo form -> neu chon DST khac thi reload sheets va mo lai form
             while (true)
             {
+
                 string template, outDir, projNum;
                 bool merged;
                 PlotNamingForm.SsmAction action;
-                List<SheetInfo> allSheets = sheets; // giu ban day du de luu nguoc .dst
-                List<SheetInfo> selected;
+                GList allSheets = sheets; // giu ban day du de luu nguoc .dst
+                GList selected;
 
                 using (var form = new PlotNamingForm(sheets, defDir, dstPath))
                 {
+
                     if (AcadApp.ShowModalDialog(form) != DialogResult.OK) return;
 
                     if (form.DstChanged)
                     {
+
                         dstPath = form.DstPath;
+                        // Update default output folder suggestion based on the newly selected DST
+                        try
+                        {
+                            defDir = Path.Combine(Path.GetDirectoryName(dstPath), "PDF");
+                        }
+                        catch { }
                         try { sheets = SheetSetReader.ReadFromDst(dstPath); }
                         catch (Exception ex)
                         {
+
                             ed.WriteMessage("\nKhông đọc được DST: " + ex.Message);
                             return;
                         }
                         if (sheets == null || sheets.Count == 0)
                         {
+
                             ed.WriteMessage("\nDST không có sheet nào.");
                             return;
                         }
@@ -148,6 +168,7 @@ namespace CADtools
                 // Bam "Lưu Sheet Set" -> ghi thay doi nguoc vao .dst, khong in.
                 if (action == PlotNamingForm.SsmAction.Save)
                 {
+
                     SaveResult sr;
                     try { sr = SheetSetWriter.Save(allSheets, ed); }
                     catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
@@ -173,12 +194,14 @@ namespace CADtools
                 // In tung sheet bang Publisher (DSD): KHONG dung PlotEngine cho database side-load.
                 if (merged)
                 {
+
                     var all = new DsdEntryCollection();
                     // Tối ưu: gom các sheet cùng DWG cạnh nhau để hạn chế mở/đóng file nặng
                     sheets.Sort((a, b) => string.Compare(a == null ? "" : (a.DwgPath ?? ""), b == null ? "" : (b.DwgPath ?? ""), StringComparison.OrdinalIgnoreCase));
 
                     foreach (var s in sheets)
                     {
+
                         if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                         { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
 
@@ -203,6 +226,7 @@ namespace CADtools
 
                 foreach (var s in sheets)
                 {
+
                     if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                     { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
 
@@ -229,17 +253,20 @@ namespace CADtools
                 return;
             }
         }
- 
 
- // Cache Document theo DWG để tránh mở/đóng liên tục
- private static string _openDwgPath = null;
+
+
+        // Cache Document theo DWG để tránh mở/đóng liên tục
+        private static string _openDwgPath = null;
         private static Document _openDwgDoc = null;
         private static bool _openDwgOwned = false;
 
         private static void EnsureDwgOpenForSheet(string dwgPath)
         {
+
             try
             {
+
                 if (string.IsNullOrWhiteSpace(dwgPath)) return;
 
                 // Nếu đang đúng DWG thì thôi
@@ -255,10 +282,13 @@ namespace CADtools
                 // Nếu DWG đã mở sẵn trong AutoCAD thì dùng lại
                 foreach (Document d in AcadApp.DocumentManager)
                 {
+
                     try
                     {
+
                         if (!string.IsNullOrEmpty(d.Name) && string.Equals(d.Name, dwgPath, StringComparison.OrdinalIgnoreCase))
                         {
+
                             _openDwgDoc = d;
                             _openDwgOwned = false;
                             return;
@@ -270,11 +300,13 @@ namespace CADtools
                 // Nếu chưa mở thì mở nền (không activate) để Publisher dùng lại
                 try
                 {
+
                     _openDwgDoc = AcadApp.DocumentManager.Open(dwgPath, false);
                     _openDwgOwned = true;
                 }
                 catch
                 {
+
                     _openDwgDoc = null;
                     _openDwgOwned = false;
                 }
@@ -284,27 +316,30 @@ namespace CADtools
 
         // In mỗi sheet 1 PDF bằng PlotEngine, nhóm theo DWG để mở 1 lần rồi plot nhiều layout.
         private static int PlotPerSheetByPlotEngine(
-        List<SheetInfo> sheets,
+        GList sheets,
         string template,
         string projNum,
         string outDir,
         HashSet<string> usedNames,
         Editor ed)
         {
+
             if (sheets == null || sheets.Count == 0) return 0;
 
             // Nhóm theo DWG
-            var byDwg = new Dictionary<string, List<SheetInfo>>(StringComparer.OrdinalIgnoreCase);
+            var byDwg = new Dictionary<string, GList>(StringComparer.OrdinalIgnoreCase);
             foreach (var s in sheets)
             {
+
                 if (s == null) continue;
                 string p = (s.DwgPath ?? "").Trim();
                 if (p.Length == 0) continue;
 
-                List<SheetInfo> list;
+                GList list;
                 if (!byDwg.TryGetValue(p, out list))
                 {
-                    list = new List<SheetInfo>();
+
+                    list = new GList();
                     byDwg[p] = list;
                 }
                 list.Add(s);
@@ -313,11 +348,13 @@ namespace CADtools
             int ok = 0;
             foreach (var kv in byDwg)
             {
+
                 string dwgPath = kv.Key;
                 var list = kv.Value;
 
                 if (!File.Exists(dwgPath))
                 {
+
                     ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + dwgPath);
                     continue;
                 }
@@ -327,13 +364,17 @@ namespace CADtools
 
                 try
                 {
+
                     // Dùng lại document nếu đã mở
                     foreach (Document d in AcadApp.DocumentManager)
                     {
+
                         try
                         {
+
                             if (!string.IsNullOrEmpty(d.Name) && string.Equals(d.Name, dwgPath, StringComparison.OrdinalIgnoreCase))
                             {
+
                                 dwgDoc = d;
                                 break;
                             }
@@ -343,24 +384,29 @@ namespace CADtools
 
                     if (dwgDoc == null)
                     {
+
                         dwgDoc = AcadApp.DocumentManager.Open(dwgPath, false);
                         openedByTool = true;
                     }
 
                     if (dwgDoc == null)
                     {
+
                         ed.WriteMessage("\nKhông mở được DWG: " + dwgPath);
                         continue;
                     }
 
                     using (dwgDoc.LockDocument())
                     {
+
                         foreach (var s in list)
                         {
+
                             if (s == null) continue;
 
                             try
                             {
+
                                 string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false, projNum));
                                 if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
                                 string baseName = name; int n = 2;
@@ -369,16 +415,19 @@ namespace CADtools
 
                                 if (PlotLayoutToPdf(dwgDoc, s.LayoutName, pdfFile))
                                 {
+
                                     ok++;
                                     ed.WriteMessage("\n[OK] " + Path.GetFileName(pdfFile));
                                 }
                                 else
                                 {
+
                                     ed.WriteMessage("\n[LỖI] " + s.Title);
                                 }
                             }
                             catch (Exception ex2)
                             {
+
                                 ed.WriteMessage("\n[LỖI] " + s.Title + ": " + ex2.Message);
                             }
                         }
@@ -386,8 +435,10 @@ namespace CADtools
                 }
                 finally
                 {
+
                     if (dwgDoc != null && openedByTool)
                     {
+
                         try { dwgDoc.CloseAndDiscard(); } catch { }
                     }
                 }
@@ -399,6 +450,7 @@ namespace CADtools
         // Plot 1 layout ra 1 file PDF (không dùng Publisher/DSD)
         private static bool PlotLayoutToPdf(Document dwgDoc, string layoutName, string pdfFile)
         {
+
             if (dwgDoc == null) return false;
             if (string.IsNullOrWhiteSpace(layoutName)) return false;
 
@@ -406,6 +458,7 @@ namespace CADtools
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
+
                 DBDictionary layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
                 if (!layoutDict.Contains(layoutName)) return false;
 
@@ -414,6 +467,7 @@ namespace CADtools
 
                 using (PlotSettings ps = new PlotSettings(lo.ModelType))
                 {
+
                     ps.CopyFrom(lo);
 
                     PlotSettingsValidator psv = PlotSettingsValidator.Current;
@@ -439,9 +493,11 @@ namespace CADtools
 
                     using (PlotEngine pe = PlotFactory.CreatePublishEngine())
                     {
+
                         PlotProgressDialog ppd = new PlotProgressDialog(false, 1, true);
                         using (ppd)
                         {
+
                             ppd.OnBeginPlot();
                             ppd.IsVisible = false;
 
@@ -467,10 +523,12 @@ namespace CADtools
             }
         }
 
-        private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
+        private static string TryGetCurrentDstPath(GList sheets)
         {
+
             try
             {
+
                 if (sheets == null || sheets.Count == 0) return "";
                 var si = sheets[0] as SheetInfo;
                 var db = si?.DbCom as AcSm.IAcSmDatabase;
@@ -483,6 +541,7 @@ namespace CADtools
         // Publish 1 hoac nhieu DsdEntry ra PDF. BACKGROUNDPLOT=0 (dong bo) + FILEDIA=0 + ForceNoPrompt.
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
+
             if (entries == null || entries.Count == 0) return false;
 
             short bp = (short)AcadApp.GetSystemVariable("BACKGROUNDPLOT");
@@ -492,8 +551,10 @@ namespace CADtools
             string dsdFile = Path.Combine(outDir, "_ssm_batch.dsd");
             try
             {
+
                 DsdData dsd = new DsdData
                 {
+
                     SheetType = type,
                     DestinationName = destPdf,
                     ProjectPath = outDir,
@@ -514,11 +575,13 @@ namespace CADtools
             }
             catch (Exception ex)
             {
+
                 ed.WriteMessage("\n[LỖI publish] " + ex.Message);
                 return false;
             }
             finally
             {
+
                 AcadApp.SetSystemVariable("BACKGROUNDPLOT", bp);
                 AcadApp.SetSystemVariable("FILEDIA", filedia);
                 if (File.Exists(dsdFile)) File.Delete(dsdFile);
@@ -528,16 +591,20 @@ namespace CADtools
         // Ep DSD khong hoi ten file: moi token PromptFor* -> FALSE theo tung dong; chen vao [Target] neu thieu.
         private static void ForceNoPrompt(string dsdFile, Encoding enc)
         {
+
             try
             {
-                var lines = new List<string>(File.ReadAllLines(dsdFile, enc));
+
+                var lines = new System.Collections.Generic.List<string>(File.ReadAllLines(dsdFile, enc));
                 bool foundDwg = false; int targetIdx = -1;
                 for (int i = 0; i < lines.Count; i++)
                 {
+
                     string t = lines[i].Trim();
                     if (t.StartsWith("[Target]", StringComparison.OrdinalIgnoreCase)) targetIdx = i;
                     if (t.StartsWith("PromptFor", StringComparison.OrdinalIgnoreCase))
                     {
+
                         int eq = lines[i].IndexOf('=');
                         string key = eq > 0 ? lines[i].Substring(0, eq).Trim() : t;
                         lines[i] = key + "=FALSE";

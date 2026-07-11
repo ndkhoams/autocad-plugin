@@ -267,7 +267,7 @@ namespace CADtools
                 catch { }
             };
 
-            // Header row (subset): 1) Ẩn checkbox "In"  2) Ẩn nút "..." chọn DWG
+            // Header row (subset): 1) Ẩn checkbox "In" 2) Ẩn nút "..." chọn DWG
             // 3) Hiển thị nút +/- ở cột STT để thu gọn/bung sheet của subset (như SSM)
             // 4) Hiển thị tên subset ở cột "Sheet Number"
             dgv.CellPainting += (s, e) =>
@@ -361,8 +361,6 @@ namespace CADtools
                         e.Handled = true;
                         return;
                     }
-
-                    // (header) cell Number đã được tự vẽ ở block phía trên, không xử lý ở đây nữa
 
                     // Chặn cell Title của header tự vẽ chữ (nếu không sẽ bị trùng text subset)
                     if (col == "Title")
@@ -525,7 +523,40 @@ namespace CADtools
             Controls.Add(btnExport);
 
             btnSave = new Button { Text = "Lưu Sheet Set", Left = rightEdge - 372, Top = btnTop, Width = 150, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
-            btnSave.Click += (s, e) => { CommitAll(); Action = SsmAction.Save; DialogResult = DialogResult.OK; };
+            btnSave.Click += (s, e) =>
+            {
+                try
+                {
+                    CommitAll();
+
+                    // Lưu ngay và GIỮ form đang mở (không đóng form)
+                    var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+                    var ed = doc == null ? null : doc.Editor;
+
+                    SaveResult sr = SheetSetWriter.Save(_sheets, ed);
+
+                    if (ed != null)
+                    {
+                        ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
+                        sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
+                        foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
+                    }
+
+                    MessageBox.Show(
+                    this,
+                    "Đã lưu Sheet Set.\nSheets saved: " + sr.SheetsSaved
+                    + "\nRevision OK: " + sr.RevisionOk
+                    + "\nRevision Fail: " + sr.RevisionFail
+                    + (sr.Warnings.Count > 0 ? ("\n\nWarnings:\n- " + string.Join("\n- ", sr.Warnings.ToArray())) : ""),
+                    "Lưu Sheet Set",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Lỗi lưu Sheet Set: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
 
             btnPrint = new Button { Text = "In PDF", Left = rightEdge - 214, Top = btnTop, Width = 110, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
             btnPrint.Click += (s, e) => { CommitAll(); SaveProjectNumber(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
@@ -545,6 +576,7 @@ namespace CADtools
             try { using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegPath)) return k == null ? "" : (k.GetValue("ProjectNumber") as string ?? ""); }
             catch { return ""; }
         }
+
         public void SaveProjectNumber()
         {
             try { using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RegPath)) if (k != null) k.SetValue("ProjectNumber", ProjectNumber ?? ""); }
@@ -725,7 +757,7 @@ namespace CADtools
                     if (string.IsNullOrEmpty(sep)) sep = ",";
 
                     var sb = new StringBuilder();
-                    var headers = new List<string>();
+                    var headers = new System.Collections.Generic.List<string>();
                     foreach (DataGridViewColumn c in dgv.Columns)
                         if (c.Visible && c.Name != "Sel") headers.Add(Csv(c.HeaderText, sep));
                     sb.AppendLine(string.Join(sep, headers.ToArray()));
@@ -733,7 +765,7 @@ namespace CADtools
                     foreach (DataGridViewRow row in dgv.Rows)
                     {
                         if (row.IsNewRow) continue;
-                        var cells = new List<string>();
+                        var cells = new System.Collections.Generic.List<string>();
                         foreach (DataGridViewColumn c in dgv.Columns)
                         {
                             if (!c.Visible || c.Name == "Sel") continue;
