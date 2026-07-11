@@ -47,7 +47,7 @@ namespace CADtools
             tab.Panels.Add(new RibbonPanel { Source = src });
 
             src.Items.Add(MakeButton("SSP", "Sheet Set Properties", "SSP ",
-                "Mo cua so gop: dat ten & in PDF theo Sheet Set, sua & luu Sheet Set, xuat Excel."));
+                "Quản lý Sheet Set, in ấn PDF."));
         }
 
         // macro ket thuc bang dau cach = Enter (chay lenh ngay).
