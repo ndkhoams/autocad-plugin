@@ -31,6 +31,19 @@
 		</Reference>
 	</ItemGroup>
 
+	<!-- (BỔ SUNG để lưu được DWG/Layout về Sheet Set)
+       SSM layout/object reference phụ thuộc AXDBLib. Nếu thiếu sẽ gặp lỗi:
+       "Could not load file or assembly 'Interop.AXDBLib...'"
+
+       CÁCH LÀM (khuyến nghị): Add COM Reference trong Visual Studio:
+       - References -> Add Reference -> COM
+       - chọn "AutoCAD xx Type Library" / "ObjectDBX Common Type Library" (tùy máy)
+       - đảm bảo Embed Interop Types = False
+
+       Sau khi add COM ref, Visual Studio sẽ tự tạo Interop.AXDBLib.dll / AxInterop.AXDBLib.dll.
+       Không thể nhúng trực tiếp COM reference này chỉ bằng sửa .csproj vì phụ thuộc GUID/PIA theo máy.
+  -->
+
 	<!-- SSM COM: typelib AcSm nam trong "C:\Program Files\Common Files\Autodesk Shared".
        QUAN TRONG: EmbedInteropTypes = false (typelib nay KHONG embed duoc;
        de true se bao CS0246 ACSMCOMPONENTSLib not found).
@@ -40,5 +53,25 @@
 		<COMFileReference Include="C:\Program Files\Common Files\Autodesk Shared\AcSmComponents24.tlb">
 			<EmbedInteropTypes>false</EmbedInteropTypes>
 		</COMFileReference>
+	</ItemGroup>
+	<ItemGroup>
+	  <COMReference Include="AutoCAD">
+	    <WrapperTool>tlbimp</WrapperTool>
+	    <VersionMinor>0</VersionMinor>
+	    <VersionMajor>1</VersionMajor>
+	    <Guid>aa9a2205-75aa-43ad-9138-1767f1bb5e0c</Guid>
+	    <Lcid>0</Lcid>
+	    <Isolated>false</Isolated>
+	    <EmbedInteropTypes>False</EmbedInteropTypes>
+	  </COMReference>
+	  <COMReference Include="AXDBLib">
+	    <WrapperTool>tlbimp</WrapperTool>
+	    <VersionMinor>0</VersionMinor>
+	    <VersionMajor>1</VersionMajor>
+	    <Guid>39ffaa00-8623-488f-8c53-dd3b0b7a464f</Guid>
+	    <Lcid>0</Lcid>
+	    <Isolated>false</Isolated>
+	    <EmbedInteropTypes>False</EmbedInteropTypes>
+	  </COMReference>
 	</ItemGroup>
 </Project>

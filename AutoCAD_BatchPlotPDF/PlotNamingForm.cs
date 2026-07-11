@@ -109,7 +109,7 @@ namespace CADtools
             // shift the rest of controls down by 30px
             const int dy = 30;
 
-            var lblTpl = new Label { Text = "Mẫu tên file:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblTpl = new Label { Text = "Mẫu tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblTpl);
             txtTemplate = new TextBox
             {
@@ -123,7 +123,7 @@ namespace CADtools
             txtTemplate.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtTemplate);
 
-            var lblTok = new Label { Text = "Chèn trường:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblTok = new Label { Text = "Add Field:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblTok);
             pnlTokens = new FlowLayoutPanel
             {
@@ -153,7 +153,7 @@ namespace CADtools
             txtProjNum.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtProjNum);
 
-            var lblDir = new Label { Text = "Thư mục lưu:", Left = 20, Top = 210 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 210 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblDir);
             txtOutDir = new TextBox
             {
@@ -211,11 +211,22 @@ namespace CADtools
             AddCol("STT", "STT", 44, true);
             AddCol("Number", "Sheet Number", 200, false);
             AddCol("Title", "Sheet Title", 300, false);
-            AddCol("Rev", "Revision", 80, false);
-            AddCol("RevDate", "Revision Date", 100, false);
+            AddCol("Rev", "Revision", 60, false);
+            AddCol("RevDate", "Revision Date", 80, false);
             AddCol("Purpose", "Issue Purpose", 200, false);
-            AddCol("LayoutName", "Layout name", 160, false);
-            AddCol("DwgPath", "DWG path", 320, false);
+            AddCol("LayoutName", "Layout name", 200, false);
+            AddCol("DwgPath", "DWG path", 200, false);
+            // Nút duyệt DWG theo từng sheet
+            dgv.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "DwgBrowse",
+                HeaderText = "",
+                Text = "...",
+                UseColumnTextForButtonValue = true,
+                Width = 36,
+                FillWeight = 36,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            });
             foreach (var k in _customKeys) AddCol("cust::" + k, k, 80, false);
             AddCol("File", "Tên file PDF", 300, true);
 
@@ -225,6 +236,58 @@ namespace CADtools
 
             dgv.CurrentCellDirtyStateChanged += (s, e) => { if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             dgv.CellMouseDown += (s, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == 0) _shiftDown = (Control.ModifierKeys & Keys.Shift) == Keys.Shift; };
+
+            // Tô đỏ DWG path nếu SSM không tìm thấy file DWG
+            dgv.CellFormatting += (s, e) =>
+            {
+                try
+                {
+                    if (e.RowIndex < 0) return;
+                    if (dgv.Columns[e.ColumnIndex].Name != "DwgPath") return;
+
+                    string p = e.Value == null ? "" : e.Value.ToString();
+                    if (string.IsNullOrWhiteSpace(p)) return;
+
+                    bool ok = File.Exists(p);
+                    e.CellStyle.ForeColor = ok ? dgv.DefaultCellStyle.ForeColor : Color.Red;
+                }
+                catch { }
+            };
+
+            // Nút "..." để duyệt lại DWG cho từng sheet
+            dgv.CellContentClick += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                if (dgv.Columns[e.ColumnIndex].Name != "DwgBrowse") return;
+
+                var row = dgv.Rows[e.RowIndex];
+                var sheet = row.Tag as SheetInfo;
+                if (sheet == null) return;
+
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Filter = "DWG (*.dwg)|*.dwg";
+                    dlg.Title = "Chọn file DWG";
+                    dlg.Multiselect = false;
+
+                    try
+                    {
+                        string current = sheet.DwgPath ?? "";
+                        if (!string.IsNullOrWhiteSpace(current))
+                        {
+                            dlg.InitialDirectory = Path.GetDirectoryName(current);
+                            dlg.FileName = Path.GetFileName(current);
+                        }
+                    }
+                    catch { }
+
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                    // Set cell -> sẽ kích hoạt CellValueChanged + propagate DWG path theo rule hiện tại
+                    row.Cells["DwgPath"].Value = dlg.FileName;
+                    dgv.EndEdit();
+                }
+            };
             dgv.CellValueChanged += (s, e) =>
             {
                 if (_bulk || e.RowIndex < 0) return;
