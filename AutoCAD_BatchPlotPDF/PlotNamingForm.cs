@@ -230,7 +230,7 @@ namespace CADtools
             AddCol("Title", "Sheet Title", 300, false);
             AddCol("Rev", "Revision", 80, false);
             AddCol("RevDate", "Revision Date", 100, false);
-            AddCol("Purpose", "Issue Purpose", 150, false);
+            AddCol("Purpose", "Issue Purpose", 200, false);
             foreach (var k in _customKeys) AddCol("cust::" + k, k, 80, false);
             AddCol("File", "Tên file PDF", 300, true);
 
