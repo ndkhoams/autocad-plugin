@@ -46,7 +46,7 @@ namespace CADtools
             RibbonPanelSource src = new RibbonPanelSource { Title = "SSM" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
-            src.Items.Add(MakeButton("CADTOOLS", "Sheet Set\nManager", "CADTOOLS ",
+            src.Items.Add(MakeButton("SSP", "Sheet Set Properties", "SSP ",
                 "Mo cua so gop: dat ten & in PDF theo Sheet Set, sua & luu Sheet Set, xuat Excel."));
         }
 
@@ -55,7 +55,7 @@ namespace CADtools
         {
             var b = new RibbonButton
             {
-                Id = "CADTOOLS_" + id,
+                Id = "SSP_" + id,
                 Text = text,
                 ShowText = true,
                 ShowImage = false,   // chua co icon; dat true + LargeImage neu muon hien icon

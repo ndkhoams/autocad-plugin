@@ -81,7 +81,7 @@ namespace CADtools
 
     public class CadToolsSheetSetCommand
     {
-        [CommandMethod("CADTOOLS", CommandFlags.Session)]
+        [CommandMethod("SSP", CommandFlags.Session)]
         public void BatchPdfSsm()
         {
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
