@@ -149,42 +149,6 @@ namespace CADtools
             }
         }
 
-        // Quet moi interface trong assembly interop AcSm, tim setter 1-tham-so-string co ten khop
-        // includeAny (bat dau Set.../put_...) va khong chua exclude, roi Invoke. True neu it nhat 1 setter chay.
-        private static bool ScanInvokeSet(object com, string[] includeAny, string exclude, string value)
-        {
-            if (com == null) return false;
-            bool done = false;
-            try
-            {
-                var asm = typeof(AcSm.IAcSmSheet).Assembly;
-                foreach (Type t in asm.GetExportedTypes())
-                {
-                    if (!t.IsInterface) continue;
-                    foreach (var m in t.GetMethods())
-                    {
-                        var ps = m.GetParameters();
-                        if (ps.Length != 1 || ps[0].ParameterType != typeof(string)) continue;
-                        if (m.ReturnType != typeof(void)) continue;
-                        string n = m.Name;
-                        bool looksSetter = n.StartsWith("Set", StringComparison.OrdinalIgnoreCase)
-                            || n.StartsWith("put_", StringComparison.OrdinalIgnoreCase);
-                        if (!looksSetter) continue;
-                        if (!string.IsNullOrEmpty(exclude) &&
-                            n.IndexOf(exclude, StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                        bool inc = false;
-                        foreach (var k in includeAny)
-                            if (n.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) { inc = true; break; }
-                        if (!inc) continue;
-                        try { m.Invoke(com, new object[] { value ?? "" }); done = true; }
-                        catch { }
-                    }
-                }
-            }
-            catch { }
-            return done;
-        }
-
         private static string Safe(Func<string> f)
         {
             try { return f() ?? ""; } catch { return ""; }

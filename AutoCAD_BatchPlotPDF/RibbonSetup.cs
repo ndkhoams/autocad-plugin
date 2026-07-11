@@ -43,10 +43,10 @@ namespace CADtools
             RibbonTab tab = new RibbonTab { Title = "CADtools", Id = TabId };
             ribbon.Tabs.Add(tab);
 
-            RibbonPanelSource src = new RibbonPanelSource { Title = "In PDF" };
+            RibbonPanelSource src = new RibbonPanelSource { Title = "SSM" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
-            src.Items.Add(MakeButton("CADTOOLS", "Sheet Set\nPDF", "CADTOOLS ",
+            src.Items.Add(MakeButton("CADTOOLS", "Sheet Set\nManager", "CADTOOLS ",
                 "Mo cua so gop: dat ten & in PDF theo Sheet Set, sua & luu Sheet Set, xuat Excel."));
         }
 

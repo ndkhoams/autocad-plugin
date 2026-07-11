@@ -144,46 +144,6 @@ namespace CADtools
             try { return f() ?? ""; } catch { return ""; }
         }
 
-        // Quet MOI interface trong assembly interop AcSm, tim method/getter parameterless tra ve
-        // string/object co ten khop tu khoa (includeAny) va khong chua 'exclude', roi Invoke tren
-        // object -> CLR tu QueryInterface; interface nao object khong support thi nem & bo qua.
-        private static string ScanInvoke(object com, string[] includeAny, string exclude)
-        {
-            if (com == null) return "";
-            try
-            {
-                var asm = typeof(AcSm.IAcSmSheet).Assembly;
-                foreach (Type t in asm.GetExportedTypes())
-                {
-                    if (!t.IsInterface) continue;
-                    foreach (var m in t.GetMethods())
-                    {
-                        if (m.GetParameters().Length != 0) continue;
-                        if (m.ReturnType != typeof(string) && m.ReturnType != typeof(object)) continue;
-                        string n = m.Name;
-                        if (!string.IsNullOrEmpty(exclude) &&
-                            n.IndexOf(exclude, StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                        bool inc = false;
-                        foreach (var k in includeAny)
-                            if (n.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) { inc = true; break; }
-                        if (!inc) continue;
-                        try
-                        {
-                            object r = m.Invoke(com, null);
-                            if (r != null && (r is string || r.GetType().IsValueType))
-                            {
-                                string s = r.ToString();
-                                if (!string.IsNullOrEmpty(s)) return s;
-                            }
-                        }
-                        catch { }
-                    }
-                }
-            }
-            catch { }
-            return "";
-        }
-
         private static string FromCustom(Dictionary<string, string> custom, params string[] keys)
         {
             if (custom == null) return "";

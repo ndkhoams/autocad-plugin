@@ -56,7 +56,7 @@ namespace CADtools
                 .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
 
-            Text = "Sheet Set → In PDF & Quản lý";
+            Text = "Sheet Set Manager";
             ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
             MinimumSize = new Size(1000, 640);
@@ -175,7 +175,7 @@ namespace CADtools
 
             chkMerged = new CheckBox
             {
-                Text = "Gộp tất cả vào 1 file PDF (dùng mẫu tên cho tên file gộp)",
+                Text = "Gộp tất cả vào 1 file PDF",
                 Left = fieldL,
                 Top = 246,
                 Width = 600,
@@ -226,11 +226,11 @@ namespace CADtools
             };
             dgv.Columns.Add(colSel);
             AddCol("STT", "STT", 44, true);
-            AddCol("Number", "Số sheet", 200, false);
-            AddCol("Title", "Tiêu đề", 300, false);
+            AddCol("Number", "Sheet Number", 200, false);
+            AddCol("Title", "Sheet Title", 300, false);
             AddCol("Rev", "Revision", 80, false);
-            AddCol("RevDate", "Ngày rev", 100, false);
-            AddCol("Purpose", "Issue purpose", 150, false);
+            AddCol("RevDate", "Revision Date", 100, false);
+            AddCol("Purpose", "Issue Purpose", 150, false);
             foreach (var k in _customKeys) AddCol("cust::" + k, k, 80, false);
             AddCol("File", "Tên file PDF", 300, true);
 
