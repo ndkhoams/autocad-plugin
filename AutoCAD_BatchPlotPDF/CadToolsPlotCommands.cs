@@ -9,14 +9,14 @@ using Autodesk.AutoCAD.Publishing;
 using Autodesk.AutoCAD.Runtime;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
-[assembly: CommandClass(typeof(BatchPlotPdf.BatchPlotCommands))]
+[assembly: CommandClass(typeof(CADtools.CadToolsPlotCommands))]
 
-namespace BatchPlotPdf
+namespace CADtools
 {
-    public class BatchPlotCommands
+    public class CadToolsPlotCommands
     {
         // Mỗi layout -> 1 file PDF riêng
-        [CommandMethod("BATCHPDF", CommandFlags.Session)]
+        [CommandMethod("CADPDF", CommandFlags.Session)]
         public void BatchPdf()
         {
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
@@ -109,7 +109,7 @@ namespace BatchPlotPdf
         }
 
         // Tất cả layout -> 1 file PDF nhiều trang (gộp)
-        [CommandMethod("BATCHPDF1FILE", CommandFlags.Session)]
+        [CommandMethod("CADPDF1FILE", CommandFlags.Session)]
         public void BatchPdfSingleFile()
         {
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;

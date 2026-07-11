@@ -1,19 +1,20 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.PlottingServices;
 using Autodesk.AutoCAD.Publishing;
 using Autodesk.AutoCAD.Runtime;
+using CADtools;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Exception = System.Exception;   // tranh nhap nhang voi Autodesk.AutoCAD.Runtime.Exception
 
-[assembly: CommandClass(typeof(BatchPlotPdf.BatchPlotSsmCommand))]
+[assembly: CommandClass(typeof(CADtools.CadToolsSheetSetCommand))]
 
-namespace BatchPlotPdf
+namespace CADtools
 {
     public static class SsmNaming
     {
@@ -36,7 +37,7 @@ namespace BatchPlotPdf
                 foreach (var kv in s.Custom)
                     if (!map.ContainsKey(kv.Key)) map[kv.Key] = kv.Value;
             }
-            // Project number nhap tay tu form MTECH (COM khong doc duoc gia tri that) -> ghi de token.
+            // Project number nhap tay tu form CADTOOLS (COM khong doc duoc gia tri that) -> ghi de token.
             if (!string.IsNullOrEmpty(projectNumberOverride))
             {
                 map["Project Number"] = projectNumberOverride;
@@ -78,9 +79,9 @@ namespace BatchPlotPdf
         }
     }
 
-    public class BatchPlotSsmCommand
+    public class CadToolsSheetSetCommand
     {
-        [CommandMethod("MTECH", CommandFlags.Session)]
+        [CommandMethod("CADTOOLS", CommandFlags.Session)]
         public void BatchPdfSsm()
         {
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
@@ -187,10 +188,6 @@ namespace BatchPlotPdf
             }
             ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
         }
-
-        // SSMEDIT giu lai nhu alias -> mo cung 1 form gop (khong con form quan ly rieng).
-        [CommandMethod("SSMEDIT", CommandFlags.Session)]
-        public void SheetSetEdit() { BatchPdfSsm(); }
 
         // Publish 1 hoac nhieu DsdEntry ra PDF. BACKGROUNDPLOT=0 (dong bo) + FILEDIA=0 + ForceNoPrompt.
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)

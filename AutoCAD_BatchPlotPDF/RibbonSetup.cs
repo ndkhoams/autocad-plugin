@@ -5,13 +5,13 @@ using Autodesk.Windows;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
 // IExtensionApplication.Initialize() tu chay khi NETLOAD -> dung de dung Ribbon o day.
-[assembly: ExtensionApplication(typeof(BatchPlotPdf.RibbonSetup))]
+[assembly: ExtensionApplication(typeof(CADtools.RibbonSetup))]
 
-namespace BatchPlotPdf
+namespace CADtools
 {
     public class RibbonSetup : IExtensionApplication
     {
-        private const string TabId = "BATCHPLOTPDF_TAB";
+        private const string TabId = "CADTOOLS_TAB";
 
         public void Initialize()
         {
@@ -40,13 +40,13 @@ namespace BatchPlotPdf
             foreach (RibbonTab t in ribbon.Tabs)
                 if (t.Id == TabId) return;
 
-            RibbonTab tab = new RibbonTab { Title = "Batch Plot PDF", Id = TabId };
+            RibbonTab tab = new RibbonTab { Title = "CADtools", Id = TabId };
             ribbon.Tabs.Add(tab);
 
             RibbonPanelSource src = new RibbonPanelSource { Title = "In PDF" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
-            src.Items.Add(MakeButton("MTECH", "Sheet Set\nPDF", "MTECH ",
+            src.Items.Add(MakeButton("CADTOOLS", "Sheet Set\nPDF", "CADTOOLS ",
                 "Mo cua so gop: dat ten & in PDF theo Sheet Set, sua & luu Sheet Set, xuat Excel."));
         }
 
@@ -55,7 +55,7 @@ namespace BatchPlotPdf
         {
             var b = new RibbonButton
             {
-                Id = "BATCHPLOTPDF_" + id,
+                Id = "CADTOOLS_" + id,
                 Text = text,
                 ShowText = true,
                 ShowImage = false,   // chua co icon; dat true + LargeImage neu muon hien icon

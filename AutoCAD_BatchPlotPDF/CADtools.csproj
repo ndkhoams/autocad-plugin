@@ -1,5 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
+		<AssemblyName>CADtools</AssemblyName>
+		<RootNamespace>CADtools</RootNamespace>
 		<TargetFramework>net48</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
 		<UseWPF>true</UseWPF>

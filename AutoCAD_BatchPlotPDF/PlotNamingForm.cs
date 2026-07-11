@@ -1,3 +1,4 @@
+using CADtools;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -8,10 +9,10 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
-namespace BatchPlotPdf
+namespace CADtools
 {
     // Form GOP duy nhat: vua dat ten & in PDF theo Sheet Set, vua sua & luu nguoc Sheet Set (.dst),
-    // vua xuat Excel — tat ca trong 1 cua so (khong con tach MTECH/SSMEDIT thanh 2 form rieng).
+    // vua xuat Excel — tat ca trong 1 cua so (khong con tach thanh 2 form rieng).
     public class PlotNamingForm : Form
     {
         public enum SsmAction { None, Print, Save }
@@ -19,7 +20,7 @@ namespace BatchPlotPdf
         private readonly List<SheetInfo> _sheets;
         private readonly List<string> _customKeys;
         // Chi cac custom key nay hien thanh cot sua & duoc ghi nguoc (bo Client/Project/Total sheet...).
-        private static readonly string[] _whitelist = { "CONT", "SHT" };
+        private static readonly string[] _whitelist = { "SHT", "CONT" };
 
         private TextBox txtTemplate, txtOutDir, txtProjNum;
         private FlowLayoutPanel pnlTokens;
@@ -206,7 +207,7 @@ namespace BatchPlotPdf
                 AllowUserToAddRows = false,
                 ReadOnly = false,
                 RowHeadersVisible = false,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 SelectionMode = DataGridViewSelectionMode.CellSelect,
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -220,11 +221,12 @@ namespace BatchPlotPdf
                 Name = "Sel",
                 HeaderText = "In",
                 Width = 40,
+                FillWeight = 40,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             };
             dgv.Columns.Add(colSel);
             AddCol("STT", "STT", 44, true);
-            AddCol("Number", "Số sheet", 150, false);
+            AddCol("Number", "Số sheet", 200, false);
             AddCol("Title", "Tiêu đề", 300, false);
             AddCol("Rev", "Revision", 80, false);
             AddCol("RevDate", "Ngày rev", 100, false);
@@ -356,7 +358,7 @@ namespace BatchPlotPdf
         }
 
         // Luu/doc Project number trong registry HKCU de nho cho lan sau.
-        private const string RegPath = @"Software\BatchPlotPdf";
+        private const string RegPath = @"Software\CADtools";
         private static string LoadSavedProjectNumber()
         {
             try
@@ -388,6 +390,8 @@ namespace BatchPlotPdf
                 Name = name,
                 HeaderText = header,
                 Width = width,
+                // Fill mode: dung width lam ty trong -> cac cot tu dan lap day be ngang grid (khong con khoang trong ben phai).
+                FillWeight = width,
                 ReadOnly = readOnly,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             });
@@ -400,7 +404,7 @@ namespace BatchPlotPdf
                 "Revision", "RevisionDate", "IssuePurpose" };
             // Chi hien cac custom token thuc su dung (CONT, SHT, Project Number); bo cac property
             // cap Sheet Set khong dung: Client, Project Address Line 1/2/3, Project Name, Total sheet.
-            var customShow = new[] { "CONT", "SHT", "Project Number" };
+            var customShow = new[] { "SHT", "CONT", "Project Number" };
             var customKeys = _sheets.SelectMany(s => s.Custom.Keys)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(k => customShow.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))

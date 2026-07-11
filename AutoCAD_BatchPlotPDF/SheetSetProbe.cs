@@ -10,14 +10,14 @@ using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using Exception = System.Exception;
 using AcSm = ACSMCOMPONENTS24Lib;
 
-[assembly: CommandClass(typeof(BatchPlotPdf.SheetSetProbe))]
+[assembly: CommandClass(typeof(CADtools.SheetSetProbe))]
 
-namespace BatchPlotPdf
+namespace CADtools
 {
-    // SSMPROBE: do tim noi luu Revision/RevisionDate/IssuePurpose tren may hien tai.
+    // CADPROBE: do tim noi luu Revision/RevisionDate/IssuePurpose tren may hien tai.
     public class SheetSetProbe
     {
-        [CommandMethod("SSMPROBE", CommandFlags.Session)]
+        [CommandMethod("CADPROBE", CommandFlags.Session)]
         public void Probe()
         {
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;

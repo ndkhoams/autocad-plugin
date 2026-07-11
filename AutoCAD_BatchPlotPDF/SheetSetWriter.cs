@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Autodesk.AutoCAD.EditorInput;
 using AcSm = ACSMCOMPONENTS24Lib;   // COM AcSm: doi so phien ban cho khop
 
-namespace BatchPlotPdf
+namespace CADtools
 {
     // Ket qua ghi nguoc (bao cao truong nao an / khong an tren dong lenh).
     public class SaveResult
