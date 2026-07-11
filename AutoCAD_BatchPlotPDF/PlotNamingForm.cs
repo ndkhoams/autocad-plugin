@@ -33,6 +33,8 @@ namespace CADtools
         private DataGridView dgv;
         private Button btnBrowse, btnPrint, btnSave, btnExport, btnCancel, btnAll, btnNone;
         private readonly HashSet<SheetInfo> _excluded = new HashSet<SheetInfo>();
+        // Subset collapse state (true = collapsed)
+        private readonly Dictionary<string, bool> _subsetCollapsed = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private int _lastCheckRow = -1;
         private bool _shiftDown = false;
         private bool _bulk = false;
@@ -265,15 +267,20 @@ namespace CADtools
                 catch { }
             };
 
-            // Header row (subset): 1) Ẩn checkbox "In"  2) Ẩn nút "..." chọn DWG  3) Vẽ "gộp ô" STT+Title và căn trái tên subset
+            // Header row (subset): 1) Ẩn checkbox "In"  2) Ẩn nút "..." chọn DWG
+            // 3) Hiển thị nút +/- ở cột STT để thu gọn/bung sheet của subset (như SSM)
+            // 4) Hiển thị tên subset ở cột "Sheet Number"
             dgv.CellPainting += (s, e) =>
             {
                 try
                 {
                     if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
                     var row = dgv.Rows[e.RowIndex];
-                    bool isHeader = (row != null && row.Tag == null);
+                    bool isHeader = (row != null && row.Tag is string && ((string)row.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal));
                     if (!isHeader) return;
+
+                    string subsetKey = "";
+                    try { subsetKey = ((string)row.Tag).Substring("__SUBSET__".Length); } catch { subsetKey = ""; }
 
                     string col = dgv.Columns[e.ColumnIndex].Name;
 
@@ -293,19 +300,18 @@ namespace CADtools
                         return;
                     }
 
-                    // (3) “Gộp ô” STT + Title: vẽ text subset trải ngang 2 ô
-                    if (col == "STT")
+                    // (3) Vẽ lại cell "Sheet Number" để đảm bảo luôn hiện chữ (kể cả khi selected)
+                    if (col == "Number")
                     {
-                        // Vẽ nền của cả 2 cell (STT + Title)
                         Rectangle r = e.CellBounds;
-                        try
-                        {
-                            var titleCell = dgv.Rows[e.RowIndex].Cells["Title"];
-                            if (titleCell != null) r = Rectangle.Union(r, dgv.GetCellDisplayRectangle(titleCell.ColumnIndex, e.RowIndex, true));
-                        }
-                        catch { }
 
-                        using (var b = new SolidBrush(row.DefaultCellStyle.BackColor))
+                        // Nếu dòng header đang được chọn, dùng màu selection để không bị "mất chữ"
+                        bool sel = false;
+                        try { sel = row.Selected; } catch { }
+                        Color back = sel ? dgv.DefaultCellStyle.SelectionBackColor : row.DefaultCellStyle.BackColor;
+                        Color fore = sel ? dgv.DefaultCellStyle.SelectionForeColor : row.DefaultCellStyle.ForeColor;
+
+                        using (var b = new SolidBrush(back))
                         using (var p = new Pen(dgv.GridColor))
                         {
                             e.Graphics.FillRectangle(b, r);
@@ -313,23 +319,57 @@ namespace CADtools
                         }
 
                         string subsetName = "";
-                        try
-                        {
-                            subsetName = Convert.ToString(row.Cells["Title"].Value ?? "");
-                            if (string.IsNullOrWhiteSpace(subsetName)) subsetName = Convert.ToString(row.Cells["STT"].Value ?? "");
-                            subsetName = (subsetName ?? "").Trim();
-                        }
-                        catch { subsetName = ""; }
+                        try { subsetName = Convert.ToString(row.Cells["Number"].Value ?? ""); } catch { }
+                        subsetName = (subsetName ?? "").Trim();
 
-                        // Canh trái
                         TextRenderer.DrawText(
                         e.Graphics,
                         subsetName,
                         row.DefaultCellStyle.Font ?? dgv.Font,
-                        new Rectangle(r.X + 6, r.Y + 4, r.Width - 10, r.Height - 8),
-                        row.DefaultCellStyle.ForeColor,
-                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                        new Rectangle(r.X + 6, r.Y, r.Width - 10, r.Height),
+                        fore,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
 
+                        e.Handled = true;
+                        return;
+                    }
+
+                    // Nút +/- ở cột STT để thu gọn/bung subset
+                    if (col == "STT")
+                    {
+                        Rectangle r = e.CellBounds;
+
+                        bool sel = false;
+                        try { sel = row.Selected; } catch { }
+                        Color back = sel ? dgv.DefaultCellStyle.SelectionBackColor : row.DefaultCellStyle.BackColor;
+                        Color fore = sel ? dgv.DefaultCellStyle.SelectionForeColor : row.DefaultCellStyle.ForeColor;
+
+                        using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, r);
+
+                        bool collapsed = false;
+                        try { collapsed = _subsetCollapsed.ContainsKey(subsetKey) && _subsetCollapsed[subsetKey]; } catch { collapsed = false; }
+                        string sign = collapsed ? "+" : "-";
+
+                        TextRenderer.DrawText(
+                        e.Graphics,
+                        sign,
+                        row.DefaultCellStyle.Font ?? dgv.Font,
+                        new Rectangle(r.X, r.Y, r.Width, r.Height),
+                        fore,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+                        e.Handled = true;
+                        return;
+                    }
+
+                    // (header) cell Number đã được tự vẽ ở block phía trên, không xử lý ở đây nữa
+
+                    // Chặn cell Title của header tự vẽ chữ (nếu không sẽ bị trùng text subset)
+                    if (col == "Title")
+                    {
+                        // Bỏ đường kẻ dọc giữa Number|Title
+                        try { e.AdvancedBorderStyle.Left = DataGridViewAdvancedCellBorderStyle.None; } catch { }
+                        e.PaintBackground(e.ClipBounds, true);
                         e.Handled = true;
                         return;
                     }
@@ -341,6 +381,24 @@ namespace CADtools
             dgv.CellContentClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
+
+                // Click vào +/- (cột STT) để thu gọn/bung subset
+                if (dgv.Columns[e.ColumnIndex].Name == "STT")
+                {
+                    var r = dgv.Rows[e.RowIndex];
+                    if (r != null && r.Tag is string && ((string)r.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal))
+                    {
+                        string sk = "";
+                        try { sk = ((string)r.Tag).Substring("__SUBSET__".Length); } catch { sk = ""; }
+                        bool cur = false;
+                        try { cur = _subsetCollapsed.ContainsKey(sk) && _subsetCollapsed[sk]; } catch { cur = false; }
+                        _subsetCollapsed[sk] = !cur;
+                        BuildRows();
+                        UpdateAllPreviews();
+                        return;
+                    }
+                }
+
                 if (dgv.Columns[e.ColumnIndex].Name != "DwgBrowse") return;
 
                 var row = dgv.Rows[e.RowIndex];
@@ -522,7 +580,7 @@ namespace CADtools
                     {
                         int hi = dgv.Rows.Add();
                         var hr = dgv.Rows[hi];
-                        hr.Tag = null; // header row
+                        hr.Tag = "__SUBSET__" + (subset ?? ""); // header row
                         hr.ReadOnly = true;
 
                         // Style header row
@@ -530,13 +588,19 @@ namespace CADtools
                         hr.DefaultCellStyle.ForeColor = Color.FromArgb(60, 60, 60);
                         hr.DefaultCellStyle.Font = new Font(Font, FontStyle.Bold);
 
-                        // Header: ghi tên subset vào cột Title (CellPainting sẽ “gộp” STT+Title để hiển thị)
+                        // Header: ghi tên subset vào cột "Sheet Number" (đỡ phải gộp cột)
                         hr.Cells["Sel"].Value = false;
                         hr.Cells["STT"].Value = "";
-                        hr.Cells["Title"].Value = string.IsNullOrWhiteSpace(subset) ? "[ROOT]" : subset;
+                        hr.Cells["Number"].Value = string.IsNullOrWhiteSpace(subset) ? "[ROOT]" : subset;
+                        hr.Cells["Title"].Value = "";
 
                         lastSubset = subset;
                     }
+
+                    // Nếu subset đang collapsed thì bỏ qua không add sheet rows
+                    bool collapsed = false;
+                    try { collapsed = _subsetCollapsed.ContainsKey(subset) && _subsetCollapsed[subset]; } catch { collapsed = false; }
+                    if (collapsed) continue;
 
                     stt++;
                     int i = dgv.Rows.Add();
