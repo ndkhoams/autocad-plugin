@@ -1,25 +1,37 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 
 namespace BatchPlotPdf
 {
+    // Form GOP duy nhat: vua dat ten & in PDF theo Sheet Set, vua sua & luu nguoc Sheet Set (.dst),
+    // vua xuat Excel — tat ca trong 1 cua so (khong con tach MTECH/SSMEDIT thanh 2 form rieng).
     public class PlotNamingForm : Form
     {
+        public enum SsmAction { None, Print, Save }
+
         private readonly List<SheetInfo> _sheets;
+        private readonly List<string> _customKeys;
+        // Chi cac custom key nay hien thanh cot sua & duoc ghi nguoc (bo Client/Project/Total sheet...).
+        private static readonly string[] _whitelist = { "CONT", "SHT" };
+
         private TextBox txtTemplate, txtOutDir, txtProjNum;
         private FlowLayoutPanel pnlTokens;
         private CheckBox chkMerged;
         private DataGridView dgv;
-        private Button btnBrowse, btnOk, btnCancel, btnAll, btnNone;
+        private Button btnBrowse, btnPrint, btnSave, btnExport, btnCancel, btnAll, btnNone;
         private readonly HashSet<SheetInfo> _excluded = new HashSet<SheetInfo>();
         private int _lastCheckRow = -1;   // ho tro Shift-chon ca dai hang
         private bool _shiftDown = false;
         private bool _bulk = false;       // chan de quy khi set tick hang loat
 
+        public SsmAction Action { get; private set; }
         public string Template { get { return txtTemplate.Text; } }
         public string OutputDir { get { return txtOutDir.Text; } }
         public string ProjectNumber { get { return txtProjNum.Text.Trim(); } }
@@ -37,14 +49,21 @@ namespace BatchPlotPdf
         public PlotNamingForm(List<SheetInfo> sheets, string defaultDir)
         {
             _sheets = sheets ?? new List<SheetInfo>();
-            Text = "Đặt tên PDF theo Sheet Set";
-            ClientSize = new Size(940, 780); StartPosition = FormStartPosition.CenterParent;
+            _customKeys = _sheets.SelectMany(s => s.Custom.Keys)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(k => _whitelist.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            Text = "Sheet Set → In PDF & Quản lý";
+            ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
-            MinimumSize = new Size(900, 700);
+            MinimumSize = new Size(1000, 640);
             Padding = new Padding(6);
 
             const int labelW = 110;
             const int fieldL = 130;
+            const int rightEdge = 1180;
 
             var lblTpl = new Label
             {
@@ -60,12 +79,12 @@ namespace BatchPlotPdf
             {
                 Left = fieldL,
                 Top = 24,
-                Width = 760,
+                Width = rightEdge - fieldL,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Text = "$(Project Number)-$(SheetNumber)-Sht$(SHT)-($(Revision))"
             };
-            txtTemplate.TextChanged += (s, e) => RefreshPreview();
+            txtTemplate.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtTemplate);
 
             var lblTok = new Label
@@ -82,7 +101,7 @@ namespace BatchPlotPdf
             {
                 Left = fieldL,
                 Top = 64,
-                Width = 760,
+                Width = rightEdge - fieldL,
                 Height = 88,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 AutoScroll = true,
@@ -108,12 +127,12 @@ namespace BatchPlotPdf
             {
                 Left = fieldL,
                 Top = 160,
-                Width = 760,
+                Width = rightEdge - fieldL,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Text = LoadSavedProjectNumber()
             };
-            txtProjNum.TextChanged += (s, e) => RefreshPreview();
+            txtProjNum.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtProjNum);
 
             var lblDir = new Label
@@ -130,17 +149,17 @@ namespace BatchPlotPdf
             {
                 Left = fieldL,
                 Top = 208,
-                Width = 712,
+                Width = rightEdge - fieldL - 50,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Text = defaultDir ?? ""
             };
-            txtOutDir.TextChanged += (s, e) => RefreshPreview();
+            txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
             btnBrowse = new Button
             {
                 Text = "...",
-                Left = 850,
+                Left = rightEdge - 44,
                 Top = 207,
                 Width = 44,
                 Height = 28,
@@ -161,74 +180,37 @@ namespace BatchPlotPdf
                 Width = 600,
                 Height = 24
             };
-            chkMerged.CheckedChanged += (s, e) => RefreshPreview();
+            chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(chkMerged);
 
             var lblHint = new Label
             {
-                Text = "Mẹo: giữ Shift rồi tích để chọn/bỏ cả dải; cột Rev sửa trực tiếp được.",
+                Text = "Sửa trực tiếp trong bảng (Số sheet, Tiêu đề, Revision, Ngày rev, Issue purpose, CONT, SHT). "
+                     + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
                 Left = 20,
-                Top = 278,
-                Width = 440,
-                Height = 22,
+                Top = 276,
+                Width = rightEdge - 20,
+                Height = 24,
                 ForeColor = Color.Gray,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
             Controls.Add(lblHint);
-
-            // Dat nhanh Rev cho tat ca sheet dang duoc chon (tick)
-            var lblBulk = new Label
-            {
-                Text = "Rev chung:",
-                Left = 470,
-                Top = 278,
-                Width = 72,
-                Height = 22,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            Controls.Add(lblBulk);
-            var txtBulkRev = new TextBox
-            {
-                Left = 544,
-                Top = 276,
-                Width = 110,
-                Height = 24,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            Controls.Add(txtBulkRev);
-            var btnBulk = new Button
-            {
-                Text = "Đặt cho sheet đã chọn",
-                Left = 662,
-                Top = 274,
-                Width = 232,
-                Height = 28,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            btnBulk.Click += (s, e) =>
-            {
-                string rev = txtBulkRev.Text.Trim();
-                foreach (var sh in _sheets) if (!_excluded.Contains(sh)) sh.Revision = rev;
-                RefreshPreview();
-            };
-            Controls.Add(btnBulk);
 
             dgv = new DataGridView
             {
                 Left = 20,
-                Top = 308,
-                Width = 874,
-                Height = 414,
+                Top = 306,
+                Width = rightEdge - 20,
+                Height = 434,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 AllowUserToAddRows = false,
                 ReadOnly = false,
                 RowHeadersVisible = false,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None,
                 SelectionMode = DataGridViewSelectionMode.CellSelect,
                 BorderStyle = BorderStyle.FixedSingle
             };
-            dgv.RowTemplate.Height = 30;
+            dgv.RowTemplate.Height = 28;
             dgv.ColumnHeadersHeight = 34;
             dgv.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             dgv.DefaultCellStyle.Padding = new Padding(4, 2, 4, 2);
@@ -237,23 +219,24 @@ namespace BatchPlotPdf
             {
                 Name = "Sel",
                 HeaderText = "In",
-                AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
-                Width = 48,
-                FillWeight = 8
+                Width = 40,
+                SortMode = DataGridViewColumnSortMode.NotSortable
             };
             dgv.Columns.Add(colSel);
-            dgv.Columns.Add("Sheet", "Sheet (Số - Tiêu đề)");
-            dgv.Columns.Add("Rev", "Rev");
-            dgv.Columns.Add("File", "Tên file PDF");
-            dgv.Columns["Sheet"].ReadOnly = true;
-            dgv.Columns["Rev"].ReadOnly = false;   // cho sua Rev truc tiep tren luoi
-            dgv.Columns["File"].ReadOnly = true;
-            dgv.Columns["Sheet"].FillWeight = 42;
-            dgv.Columns["Rev"].FillWeight = 12;
-            dgv.Columns["File"].FillWeight = 46;
+            AddCol("STT", "STT", 44, true);
+            AddCol("Number", "Số sheet", 150, false);
+            AddCol("Title", "Tiêu đề", 300, false);
+            AddCol("Rev", "Revision", 80, false);
+            AddCol("RevDate", "Ngày rev", 100, false);
+            AddCol("Purpose", "Issue purpose", 150, false);
+            foreach (var k in _customKeys) AddCol("cust::" + k, k, 80, false);
+            AddCol("File", "Tên file PDF", 300, true);
+
+            dgv.Columns["STT"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            dgv.Columns["STT"].DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
             dgv.Columns["Rev"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            // commit tick ngay khi bam (khong can roi o)
+            // commit tick ngay khi bam (khong can roi o) cho checkbox
             dgv.CurrentCellDirtyStateChanged += (s, e) =>
             { if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             // bat trang thai Shift TRUOC khi gia tri commit
@@ -265,48 +248,43 @@ namespace BatchPlotPdf
             dgv.CellValueChanged += (s, e) =>
             {
                 if (_bulk || e.RowIndex < 0) return;
-
-                // Sua truc tiep cot Rev -> cap nhat Revision & ten file cua rieng hang do
-                if (e.ColumnIndex == dgv.Columns["Rev"].Index)
-                {
-                    var sh0 = dgv.Rows[e.RowIndex].Tag as SheetInfo;
-                    if (sh0 != null)
-                    {
-                        sh0.Revision = Convert.ToString(dgv.Rows[e.RowIndex].Cells["Rev"].Value ?? "").Trim();
-                        string nm = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, sh0, false, ProjectNumber));
-                        if (string.IsNullOrWhiteSpace(nm)) nm = sh0.LayoutName;
-                        dgv.Rows[e.RowIndex].Cells["File"].Value = SsmNaming.EnsurePdf(nm);
-                    }
-                    return;
-                }
-
-                if (e.ColumnIndex != 0) return;
                 var row = dgv.Rows[e.RowIndex];
                 var sheet = row.Tag as SheetInfo;
                 if (sheet == null) return;
-                bool isChecked = Convert.ToBoolean(row.Cells[0].Value ?? false);
-                ApplyCheck(sheet, isChecked);
+                string col = dgv.Columns[e.ColumnIndex].Name;
 
-                // Shift + tich -> ap dung cung trang thai cho ca dai tu hang tich truoc do
-                if (_shiftDown && _lastCheckRow >= 0 && _lastCheckRow != e.RowIndex)
+                if (col == "Sel")
                 {
-                    int a = Math.Min(_lastCheckRow, e.RowIndex);
-                    int b = Math.Max(_lastCheckRow, e.RowIndex);
-                    _bulk = true;
-                    for (int i = a; i <= b; i++)
+                    bool isChecked = Convert.ToBoolean(row.Cells[0].Value ?? false);
+                    ApplyCheck(sheet, isChecked);
+                    // Shift + tich -> ap dung cung trang thai cho ca dai tu hang tich truoc do
+                    if (_shiftDown && _lastCheckRow >= 0 && _lastCheckRow != e.RowIndex)
                     {
-                        dgv.Rows[i].Cells[0].Value = isChecked;
-                        var sh = dgv.Rows[i].Tag as SheetInfo;
-                        if (sh != null) ApplyCheck(sh, isChecked);
+                        int a = Math.Min(_lastCheckRow, e.RowIndex);
+                        int b = Math.Max(_lastCheckRow, e.RowIndex);
+                        _bulk = true;
+                        for (int i = a; i <= b; i++)
+                        {
+                            dgv.Rows[i].Cells[0].Value = isChecked;
+                            var sh = dgv.Rows[i].Tag as SheetInfo;
+                            if (sh != null) ApplyCheck(sh, isChecked);
+                        }
+                        _bulk = false;
                     }
-                    _bulk = false;
+                    _lastCheckRow = e.RowIndex;
+                    _shiftDown = false;
+                    return;
                 }
-                _lastCheckRow = e.RowIndex;
-                _shiftDown = false;
+
+                // Sua cot du lieu -> cap nhat model roi tinh lai ten file (anh huong dedup nen tinh lai het).
+                CommitRow(row, sheet);
+                UpdateAllPreviews();
             };
             Controls.Add(dgv);
 
-            const int btnTop = 734;
+            BuildRows();
+
+            const int btnTop = 754;
             btnAll = new Button
             {
                 Text = "Chọn tất cả",
@@ -316,7 +294,7 @@ namespace BatchPlotPdf
                 Height = 32,
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left
             };
-            btnAll.Click += (s, e) => { _excluded.Clear(); RefreshPreview(); };
+            btnAll.Click += (s, e) => { _excluded.Clear(); SyncChecks(); UpdateAllPreviews(); };
             Controls.Add(btnAll);
             btnNone = new Button
             {
@@ -327,34 +305,54 @@ namespace BatchPlotPdf
                 Height = 32,
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left
             };
-            btnNone.Click += (s, e) => { _excluded.Clear(); foreach (var sh in _sheets) _excluded.Add(sh); RefreshPreview(); };
+            btnNone.Click += (s, e) => { _excluded.Clear(); foreach (var sh in _sheets) _excluded.Add(sh); SyncChecks(); UpdateAllPreviews(); };
             Controls.Add(btnNone);
+            btnExport = new Button
+            {
+                Text = "Xuất Excel",
+                Left = 292,
+                Top = btnTop,
+                Width = 120,
+                Height = 32,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+            };
+            btnExport.Click += (s, e) => ExportToExcel();
+            Controls.Add(btnExport);
 
-            btnOk = new Button
+            btnSave = new Button
+            {
+                Text = "Lưu Sheet Set",
+                Left = rightEdge - 372,
+                Top = btnTop,
+                Width = 150,
+                Height = 32,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            };
+            btnSave.Click += (s, e) => { CommitAll(); Action = SsmAction.Save; DialogResult = DialogResult.OK; };
+            btnPrint = new Button
             {
                 Text = "In PDF",
-                Left = 686,
+                Left = rightEdge - 214,
                 Top = btnTop,
-                Width = 100,
+                Width = 110,
                 Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-                DialogResult = DialogResult.OK
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
             };
-            btnOk.Click += (s, e) => SaveProjectNumber();   // nho Project number cho lan sau
+            btnPrint.Click += (s, e) => { CommitAll(); SaveProjectNumber(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
             btnCancel = new Button
             {
-                Text = "Hủy",
-                Left = 794,
+                Text = "Đóng",
+                Left = rightEdge - 96,
                 Top = btnTop,
-                Width = 100,
+                Width = 96,
                 Height = 32,
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
                 DialogResult = DialogResult.Cancel
             };
-            Controls.Add(btnOk); Controls.Add(btnCancel);
-            AcceptButton = btnOk; CancelButton = btnCancel;
+            Controls.Add(btnSave); Controls.Add(btnPrint); Controls.Add(btnCancel);
+            AcceptButton = btnPrint; CancelButton = btnCancel;
 
-            RefreshPreview();
+            UpdateAllPreviews();
         }
 
         // Luu/doc Project number trong registry HKCU de nho cho lan sau.
@@ -381,6 +379,18 @@ namespace BatchPlotPdf
         private void ApplyCheck(SheetInfo sheet, bool isChecked)
         {
             if (isChecked) _excluded.Remove(sheet); else _excluded.Add(sheet);
+        }
+
+        private void AddCol(string name, string header, int width, bool readOnly)
+        {
+            dgv.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = name,
+                HeaderText = header,
+                Width = width,
+                ReadOnly = readOnly,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            });
         }
 
         private void BuildTokenButtons()
@@ -424,11 +434,57 @@ namespace BatchPlotPdf
             return _sheets.Count > 0 ? _sheets[0] : null;
         }
 
-        private void RefreshPreview()
+        // Dung 1 lan: tao du hang tu _sheets (giu Tag = SheetInfo de sua truc tiep).
+        // QUAN TRONG: phai dat _bulk=true trong luc do hang. Neu khong, moi lan gan .Value cho
+        // 1 o se ban su kien CellValueChanged -> CommitRow doc lai CA hang (luc do cac o khac
+        // CHUA duoc gan, dang null) roi ghi "" nguoc vao SheetInfo -> xoa sach Number/Title/
+        // Rev... TRUOC khi chung kip gan -> bang hien ra rong. _bulk chan dung viec do.
+        private void BuildRows()
         {
-            dgv.Rows.Clear();
-            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _bulk = true;
+            try
+            {
+                dgv.Rows.Clear();
+                for (int idx = 0; idx < _sheets.Count; idx++)
+                {
+                    var s = _sheets[idx];
+                    int i = dgv.Rows.Add();
+                    var row = dgv.Rows[i];
+                    row.Tag = s;
+                    row.Cells["Sel"].Value = !_excluded.Contains(s);
+                    row.Cells["STT"].Value = (idx + 1).ToString();
+                    row.Cells["Number"].Value = s.Number;
+                    row.Cells["Title"].Value = s.Title;
+                    row.Cells["Rev"].Value = s.Revision;
+                    row.Cells["RevDate"].Value = s.RevisionDate;
+                    row.Cells["Purpose"].Value = s.IssuePurpose;
+                    foreach (var k in _customKeys)
+                    {
+                        string v; s.Custom.TryGetValue(k, out v);
+                        row.Cells["cust::" + k].Value = v ?? "";
+                    }
+                }
+            }
+            finally { _bulk = false; }
+        }
 
+        // Dong bo cot tick voi _excluded (sau khi bam Chon/Bo chon tat ca).
+        private void SyncChecks()
+        {
+            _bulk = true;
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                var s = row.Tag as SheetInfo;
+                if (s != null) row.Cells["Sel"].Value = !_excluded.Contains(s);
+            }
+            _bulk = false;
+        }
+
+        // Tinh lai cot "Tên file PDF" cho tat ca hang (khong dung vao du lieu dang sua).
+        private void UpdateAllPreviews()
+        {
+            if (dgv == null) return;
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string mergedName = null;
             if (chkMerged.Checked)
             {
@@ -436,14 +492,12 @@ namespace BatchPlotPdf
                     SsmNaming.Resolve(Template, FirstSelected(), true, ProjectNumber)));
                 if (string.IsNullOrWhiteSpace(mergedName)) mergedName = "MergedSheets.pdf";
             }
-
-            foreach (var s in _sheets)
+            foreach (DataGridViewRow row in dgv.Rows)
             {
+                var s = row.Tag as SheetInfo;
+                if (s == null) continue;
                 string fileName;
-                if (chkMerged.Checked)
-                {
-                    fileName = mergedName;
-                }
+                if (chkMerged.Checked) fileName = mergedName;
                 else
                 {
                     string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, s, false, ProjectNumber));
@@ -452,10 +506,97 @@ namespace BatchPlotPdf
                     while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
                     fileName = SsmNaming.EnsurePdf(name);
                 }
-
-                int idx = dgv.Rows.Add(!_excluded.Contains(s), s.Number + " - " + s.Title, s.Revision, fileName);
-                dgv.Rows[idx].Tag = s;
+                row.Cells["File"].Value = fileName;
             }
+        }
+
+        // Day gia tri 1 hang vao SheetInfo (de In/Luu deu dung so lieu moi nhat).
+        private void CommitRow(DataGridViewRow row, SheetInfo s)
+        {
+            s.Number = Str(row, "Number");
+            s.Title = Str(row, "Title");
+            s.Revision = Str(row, "Rev");
+            s.RevisionDate = Str(row, "RevDate");
+            s.IssuePurpose = Str(row, "Purpose");
+            s.EditableCustomKeys = _customKeys;   // chi ghi nguoc CONT/SHT
+            foreach (var k in _customKeys) s.Custom[k] = Str(row, "cust::" + k);
+        }
+
+        private void CommitAll()
+        {
+            dgv.EndEdit();
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                var s = row.Tag as SheetInfo;
+                if (s != null) CommitRow(row, s);
+            }
+        }
+
+        // Xuat bang hien tai (ke ca chinh sua chua luu) ra CSV UTF-8 co BOM -> Excel mo truc tiep.
+        private void ExportToExcel()
+        {
+            try
+            {
+                dgv.EndEdit();
+                using (var dlg = new SaveFileDialog
+                {
+                    Title = "Xuất bảng Sheet Set ra Excel",
+                    Filter = "CSV (mở bằng Excel)|*.csv",
+                    FileName = "SheetSet_" + DateTime.Now.ToString("yyyyMMdd_HHmm") + ".csv"
+                })
+                {
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                    string sep = CultureInfo.CurrentCulture.TextInfo.ListSeparator;
+                    if (string.IsNullOrEmpty(sep)) sep = ",";
+
+                    var sb = new StringBuilder();
+                    var headers = new List<string>();
+                    foreach (DataGridViewColumn c in dgv.Columns)
+                        if (c.Visible && c.Name != "Sel") headers.Add(Csv(c.HeaderText, sep));
+                    sb.AppendLine(string.Join(sep, headers.ToArray()));
+
+                    foreach (DataGridViewRow row in dgv.Rows)
+                    {
+                        if (row.IsNewRow) continue;
+                        var cells = new List<string>();
+                        foreach (DataGridViewColumn c in dgv.Columns)
+                        {
+                            if (!c.Visible || c.Name == "Sel") continue;
+                            var v = row.Cells[c.Index].Value;
+                            cells.Add(Csv(v == null ? "" : v.ToString(), sep));
+                        }
+                        sb.AppendLine(string.Join(sep, cells.ToArray()));
+                    }
+
+                    File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
+
+                    if (MessageBox.Show("Đã xuất: " + dlg.FileName + Environment.NewLine + "Mở file ngay?",
+                        "Xuất Excel", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                        Process.Start(new ProcessStartInfo(dlg.FileName) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Không xuất được: " + ex.Message, "Lỗi",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static string Csv(string s, string sep)
+        {
+            if (s == null) s = "";
+            const string q = "\"";
+            bool needQuote = s.IndexOf(sep, StringComparison.Ordinal) >= 0
+                || s.Contains(q) || s.Contains("\n") || s.Contains("\r");
+            s = s.Replace(q, q + q);
+            return needQuote ? q + s + q : s;
+        }
+
+        private static string Str(DataGridViewRow row, string col)
+        {
+            var v = row.Cells[col].Value;
+            return v == null ? "" : v.ToString();
         }
     }
 }

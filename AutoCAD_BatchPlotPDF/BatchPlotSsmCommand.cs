@@ -103,13 +103,34 @@ namespace BatchPlotPdf
 
             string template, outDir, projNum;
             bool merged;
+            PlotNamingForm.SsmAction action;
+            List<SheetInfo> allSheets = sheets;   // giu ban day du de luu nguoc .dst
+            List<SheetInfo> selected;
             using (var form = new PlotNamingForm(sheets, defDir))
             {
                 if (AcadApp.ShowModalDialog(form) != System.Windows.Forms.DialogResult.OK) return;
+                action = form.Action;
                 template = form.Template; outDir = form.OutputDir; merged = form.Merged;
                 projNum = form.ProjectNumber;
-                sheets = form.SelectedSheets;
+                selected = form.SelectedSheets;
             }
+
+            // Bam "Lưu Sheet Set" -> ghi thay doi (Number/Title/Rev/CONT/SHT...) nguoc vao .dst, khong in.
+            if (action == PlotNamingForm.SsmAction.Save)
+            {
+                SaveResult sr;
+                try { sr = SheetSetWriter.Save(allSheets, ed); }
+                catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
+                ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
+                    sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
+                if (sr.RevisionFail > 0)
+                    ed.WriteMessage("\nRevision/Issue purpose không ghi được qua COM (bản AutoCAD này không lộ setter) — sửa trực tiếp trong hộp thoại Sheet Properties của SSM.");
+                foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
+                return;
+            }
+
+            // Nguoc lai: bam "In PDF" -> chi in cac sheet dang tich.
+            sheets = selected;
             if (sheets.Count == 0) { ed.WriteMessage("\nBạn chưa chọn sheet nào để in."); return; }
             Directory.CreateDirectory(outDir);
 
@@ -167,41 +188,9 @@ namespace BatchPlotPdf
             ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
         }
 
-        // Mo bang quan ly Sheet Set: sua Number/Title/Desc/Custom (+ thu ghi Revision) roi luu vao .dst.
+        // SSMEDIT giu lai nhu alias -> mo cung 1 form gop (khong con form quan ly rieng).
         [CommandMethod("SSMEDIT", CommandFlags.Session)]
-        public void SheetSetEdit()
-        {
-            Document doc = AcadApp.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            Editor ed = doc.Editor;
-
-            List<SheetInfo> sheets;
-            try { sheets = SheetSetReader.ReadOpenSheetSets(); }
-            catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set: " + ex.Message); return; }
-            if (sheets.Count == 0)
-            {
-                ed.WriteMessage("\nChưa mở Sheet Set nào trong Sheet Set Manager.");
-                return;
-            }
-
-            bool doSave;
-            using (var form = new SheetSetEditorForm(sheets))
-            {
-                var dr = AcadApp.ShowModalDialog(form);
-                doSave = dr == System.Windows.Forms.DialogResult.OK && form.DoSave;
-            }
-            if (!doSave) return;
-
-            SaveResult r;
-            try { r = SheetSetWriter.Save(sheets, ed); }
-            catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
-
-            ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
-                r.SheetsSaved, r.RevisionOk, r.RevisionFail);
-            if (r.RevisionFail > 0)
-                ed.WriteMessage("\nRevision/Issue purpose không ghi được qua COM (bản AutoCAD này không lộ setter) — sửa trực tiếp trong hộp thoại Sheet Properties của SSM.");
-            foreach (var w in r.Warnings) ed.WriteMessage("\n- " + w);
-        }
+        public void SheetSetEdit() { BatchPdfSsm(); }
 
         // Publish 1 hoac nhieu DsdEntry ra PDF. BACKGROUNDPLOT=0 (dong bo) + FILEDIA=0 + ForceNoPrompt.
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)

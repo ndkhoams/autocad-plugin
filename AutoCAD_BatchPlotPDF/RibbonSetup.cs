@@ -46,11 +46,8 @@ namespace BatchPlotPdf
             RibbonPanelSource src = new RibbonPanelSource { Title = "In PDF" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
-            src.Items.Add(MakeButton("MTECH", "In theo\nSheet Set", "MTECH ",
-                "Mo UserForm dat ten PDF theo Sheet Set Manager va in tung sheet."));
-
-            src.Items.Add(MakeButton("SSMEDIT", "Quản lý\nSheet Set", "SSMEDIT ",
-                "Mo bang chinh sua Number/Title/Description/Custom (va thu ghi Revision) roi luu vao Sheet Set."));
+            src.Items.Add(MakeButton("MTECH", "Sheet Set\nPDF", "MTECH ",
+                "Mo cua so gop: dat ten & in PDF theo Sheet Set, sua & luu Sheet Set, xuat Excel."));
         }
 
         // macro ket thuc bang dau cach = Enter (chay lenh ngay).
