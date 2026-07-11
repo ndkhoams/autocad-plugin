@@ -63,7 +63,7 @@ namespace CADtools
             .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
-            Text = "Sheet Set Properties";
+            Text = "Sheet Set Properties - V1.0 ©KhoaND";
             ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
             MinimumSize = new Size(1000, 640);
@@ -111,7 +111,7 @@ namespace CADtools
             // shift the rest of controls down by 30px
             const int dy = 30;
 
-            var lblTpl = new Label { Text = "Mẫu tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblTpl = new Label { Text = "Tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblTpl);
             txtTemplate = new TextBox
             {
@@ -178,7 +178,7 @@ namespace CADtools
 
             var lblHint = new Label
             {
-                Text = "Sửa trực tiếp trong bảng (Số sheet, Tiêu đề, Revision, Ngày rev, Issue purpose, CONT, SHT). "
+                Text = "Sửa trực tiếp trong bảng (Sheet Number, Sheet Title, Revision, Revision Date, Issue Purpose, CONT, SHT, Layout Name, DWG Path). "
             + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
                 Left = 20,
                 Top = 276 + dy,
@@ -210,19 +210,19 @@ namespace CADtools
 
             var colSel = new DataGridViewCheckBoxColumn { Name = "Sel", HeaderText = "In", Width = 40, FillWeight = 40, SortMode = DataGridViewColumnSortMode.NotSortable };
             dgv.Columns.Add(colSel);
-            AddCol("STT", "STT", 44, true);
+            AddCol("STT", "STT", 50, true);
             AddCol("Number", "Sheet Number", 200, false);
             AddCol("Title", "Sheet Title", 300, false);
-            AddCol("Rev", "Revision", 60, false);
-            AddCol("RevDate", "Revision Date", 80, false);
+            AddCol("Rev", "Rev", 50, false);
+            AddCol("RevDate", "Rev Date", 80, false);
             AddCol("Purpose", "Issue Purpose", 200, false);
             // SUBSET: không dùng cột riêng. Thay vào đó chèn 1 dòng tiêu đề trước sheet đầu tiên của mỗi subset.
             // (dòng tiêu đề sẽ hiển thị ở cột "Sheet Title")
             // 2 cột SHT/CONT đứng trước Layout Name
-            AddCol("cust::SHT", "SHT", 60, false);
-            AddCol("cust::CONT", "CONT", 60, false);
-            AddCol("LayoutName", "Layout name", 200, false);
-            AddCol("DwgPath", "DWG path", 200, false);
+            AddCol("cust::SHT", "SHT", 50, false);
+            AddCol("cust::CONT", "CONT", 50, false);
+            AddCol("LayoutName", "Layout Name", 250, false);
+            AddCol("DwgPath", "DWG Path", 100, false);
             // Nút duyệt DWG theo từng sheet
             dgv.Columns.Add(new DataGridViewButtonColumn
             {
