@@ -132,7 +132,7 @@ namespace CADtools
                 Left = fieldL,
                 Top = 64 + dy,
                 Width = rightEdge - fieldL,
-                Height = 88,
+                Height = 56,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 AutoScroll = true,
                 WrapContents = true,
@@ -141,12 +141,12 @@ namespace CADtools
             Controls.Add(pnlTokens);
             BuildTokenButtons();
 
-            var lblProj = new Label { Text = "Project number:", Left = 20, Top = 162 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblProj = new Label { Text = "Project number:", Left = 20, Top = 130 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblProj);
             txtProjNum = new TextBox
             {
                 Left = fieldL,
-                Top = 160 + dy,
+                Top = 128 + dy,
                 Width = rightEdge - fieldL,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -155,12 +155,12 @@ namespace CADtools
             txtProjNum.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtProjNum);
 
-            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 210 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 178 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblDir);
             txtOutDir = new TextBox
             {
                 Left = fieldL,
-                Top = 208 + dy,
+                Top = 176 + dy,
                 Width = rightEdge - fieldL - 50,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -168,11 +168,11 @@ namespace CADtools
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = rightEdge - 44, Top = 207 + dy, Width = 44, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnBrowse = new Button { Text = "...", Left = rightEdge - 44, Top = 175 + dy, Width = 44, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
-            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 246 + dy, Width = 600, Height = 24 };
+            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 214 + dy, Width = 600, Height = 24 };
             chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(chkMerged);
 
@@ -181,7 +181,7 @@ namespace CADtools
                 Text = "Sửa trực tiếp trong bảng (Sheet Number, Sheet Title, Revision, Revision Date, Issue Purpose, CONT, SHT, Layout Name, DWG Path). "
             + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
                 Left = 20,
-                Top = 276 + dy,
+                Top = 244 + dy,
                 Width = rightEdge - 20,
                 Height = 24,
                 ForeColor = Color.Gray,
@@ -192,9 +192,9 @@ namespace CADtools
             dgv = new DataGridView
             {
                 Left = 20,
-                Top = 306 + dy,
+                Top = 274 + dy,
                 Width = rightEdge - 20,
-                Height = 404,
+                Height = 436,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 AllowUserToAddRows = false,
                 ReadOnly = false,
