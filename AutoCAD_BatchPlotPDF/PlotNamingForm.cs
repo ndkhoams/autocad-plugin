@@ -17,10 +17,15 @@ namespace CADtools
     {
         public enum SsmAction { None, Print, Save }
 
-        private readonly List<SheetInfo> _sheets;
-        private readonly List<string> _customKeys;
-        // Chi cac custom key nay hien thanh cot sua & duoc ghi nguoc (bo Client/Project/Total sheet...).
+        private readonly System.Collections.Generic.List<SheetInfo> _sheets;
+        private readonly System.Collections.Generic.List<string> _customKeys;
         private static readonly string[] _whitelist = { "SHT", "CONT" };
+
+        // DST picker (NEW)
+        private TextBox txtDstPath;
+        private Button btnDstBrowse;
+        public bool DstChanged { get; private set; }
+        public string DstPath { get { return txtDstPath == null ? "" : txtDstPath.Text.Trim(); } }
 
         private TextBox txtTemplate, txtOutDir, txtProjNum;
         private FlowLayoutPanel pnlTokens;
@@ -28,33 +33,33 @@ namespace CADtools
         private DataGridView dgv;
         private Button btnBrowse, btnPrint, btnSave, btnExport, btnCancel, btnAll, btnNone;
         private readonly HashSet<SheetInfo> _excluded = new HashSet<SheetInfo>();
-        private int _lastCheckRow = -1;   // ho tro Shift-chon ca dai hang
+        private int _lastCheckRow = -1;
         private bool _shiftDown = false;
-        private bool _bulk = false;       // chan de quy khi set tick hang loat
+        private bool _bulk = false;
 
         public SsmAction Action { get; private set; }
         public string Template { get { return txtTemplate.Text; } }
         public string OutputDir { get { return txtOutDir.Text; } }
         public string ProjectNumber { get { return txtProjNum.Text.Trim(); } }
         public bool Merged { get { return chkMerged.Checked; } }
-        public List<SheetInfo> SelectedSheets
+        public System.Collections.Generic.List<SheetInfo> SelectedSheets
         {
             get
             {
-                var list = new List<SheetInfo>();
+                var list = new System.Collections.Generic.List<SheetInfo>();
                 foreach (var s in _sheets) if (!_excluded.Contains(s)) list.Add(s);
                 return list;
             }
         }
 
-        public PlotNamingForm(List<SheetInfo> sheets, string defaultDir)
+        public PlotNamingForm(System.Collections.Generic.List<SheetInfo> sheets, string defaultDir, string currentDstPath)
         {
-            _sheets = sheets ?? new List<SheetInfo>();
+            _sheets = sheets ?? new System.Collections.Generic.List<SheetInfo>();
             _customKeys = _sheets.SelectMany(s => s.Custom.Keys)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(k => _whitelist.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(k => _whitelist.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
 
             Text = "Sheet Set Properties";
             ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
@@ -62,24 +67,54 @@ namespace CADtools
             MinimumSize = new Size(1000, 640);
             Padding = new Padding(6);
 
-            const int labelW = 110;
-            const int fieldL = 130;
+            // Tăng labelW/fieldL để cụm token không che phần text bên trái (UI rộng hơn)
+            const int labelW = 130;
+            const int fieldL = 150;
             const int rightEdge = 1180;
 
-            var lblTpl = new Label
+            // DST picker row
+            var lblDst = new Label { Text = "Sheet set (.dst):", Left = 20, Top = 6, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            Controls.Add(lblDst);
+
+            txtDstPath = new TextBox
             {
-                Text = "Mẫu tên file:",
-                Left = 20,
-                Top = 26,
-                Width = labelW,
+                Left = fieldL,
+                Top = 4,
+                Width = rightEdge - fieldL - 50,
                 Height = 26,
-                TextAlign = ContentAlignment.MiddleLeft
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                ReadOnly = true,
+                Text = currentDstPath ?? ""
             };
+            Controls.Add(txtDstPath);
+
+            btnDstBrowse = new Button { Text = "...", Left = rightEdge - 44, Top = 3, Width = 44, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnDstBrowse.Click += (s, e) =>
+            {
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Filter = "Sheet Set (*.dst)|*.dst";
+                    dlg.Title = "Chọn file Sheet Set (.dst)";
+                    dlg.Multiselect = false;
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                    txtDstPath.Text = dlg.FileName;
+                    DstChanged = true;
+                    Action = SsmAction.None;
+                    DialogResult = DialogResult.OK;
+                }
+            };
+            Controls.Add(btnDstBrowse);
+
+            // shift the rest of controls down by 30px
+            const int dy = 30;
+
+            var lblTpl = new Label { Text = "Mẫu tên file:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblTpl);
             txtTemplate = new TextBox
             {
                 Left = fieldL,
-                Top = 24,
+                Top = 24 + dy,
                 Width = rightEdge - fieldL,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -88,20 +123,12 @@ namespace CADtools
             txtTemplate.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtTemplate);
 
-            var lblTok = new Label
-            {
-                Text = "Chèn trường:",
-                Left = 20,
-                Top = 66,
-                Width = labelW,
-                Height = 26,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
+            var lblTok = new Label { Text = "Chèn trường:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblTok);
             pnlTokens = new FlowLayoutPanel
             {
                 Left = fieldL,
-                Top = 64,
+                Top = 64 + dy,
                 Width = rightEdge - fieldL,
                 Height = 88,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -112,22 +139,12 @@ namespace CADtools
             Controls.Add(pnlTokens);
             BuildTokenButtons();
 
-            // Project number: AutoCAD khong cho doc gia tri that qua COM (bag chi tra ve default),
-            // nen nhap tay o day; token $(Project Number) trong mau ten se dung gia tri nay.
-            var lblProj = new Label
-            {
-                Text = "Project number:",
-                Left = 20,
-                Top = 162,
-                Width = labelW,
-                Height = 26,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
+            var lblProj = new Label { Text = "Project number:", Left = 20, Top = 162 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblProj);
             txtProjNum = new TextBox
             {
                 Left = fieldL,
-                Top = 160,
+                Top = 160 + dy,
                 Width = rightEdge - fieldL,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -136,20 +153,12 @@ namespace CADtools
             txtProjNum.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtProjNum);
 
-            var lblDir = new Label
-            {
-                Text = "Thư mục lưu:",
-                Left = 20,
-                Top = 210,
-                Width = labelW,
-                Height = 26,
-                TextAlign = ContentAlignment.MiddleLeft
-            };
+            var lblDir = new Label { Text = "Thư mục lưu:", Left = 20, Top = 210 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(lblDir);
             txtOutDir = new TextBox
             {
                 Left = fieldL,
-                Top = 208,
+                Top = 208 + dy,
                 Width = rightEdge - fieldL - 50,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -157,39 +166,20 @@ namespace CADtools
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button
-            {
-                Text = "...",
-                Left = rightEdge - 44,
-                Top = 207,
-                Width = 44,
-                Height = 28,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            btnBrowse.Click += (s, e) =>
-            {
-                using (var d = new FolderBrowserDialog())
-                    if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath;
-            };
+            btnBrowse = new Button { Text = "...", Left = rightEdge - 44, Top = 207 + dy, Width = 44, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
-            chkMerged = new CheckBox
-            {
-                Text = "Gộp tất cả vào 1 file PDF",
-                Left = fieldL,
-                Top = 246,
-                Width = 600,
-                Height = 24
-            };
+            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 246 + dy, Width = 600, Height = 24 };
             chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(chkMerged);
 
             var lblHint = new Label
             {
                 Text = "Sửa trực tiếp trong bảng (Số sheet, Tiêu đề, Revision, Ngày rev, Issue purpose, CONT, SHT). "
-                     + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
+            + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
                 Left = 20,
-                Top = 276,
+                Top = 276 + dy,
                 Width = rightEdge - 20,
                 Height = 24,
                 ForeColor = Color.Gray,
@@ -200,9 +190,9 @@ namespace CADtools
             dgv = new DataGridView
             {
                 Left = 20,
-                Top = 306,
+                Top = 306 + dy,
                 Width = rightEdge - 20,
-                Height = 434,
+                Height = 404,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 AllowUserToAddRows = false,
                 ReadOnly = false,
@@ -216,14 +206,7 @@ namespace CADtools
             dgv.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             dgv.DefaultCellStyle.Padding = new Padding(4, 2, 4, 2);
 
-            var colSel = new DataGridViewCheckBoxColumn
-            {
-                Name = "Sel",
-                HeaderText = "In",
-                Width = 40,
-                FillWeight = 40,
-                SortMode = DataGridViewColumnSortMode.NotSortable
-            };
+            var colSel = new DataGridViewCheckBoxColumn { Name = "Sel", HeaderText = "In", Width = 40, FillWeight = 40, SortMode = DataGridViewColumnSortMode.NotSortable };
             dgv.Columns.Add(colSel);
             AddCol("STT", "STT", 44, true);
             AddCol("Number", "Sheet Number", 200, false);
@@ -231,6 +214,8 @@ namespace CADtools
             AddCol("Rev", "Revision", 80, false);
             AddCol("RevDate", "Revision Date", 100, false);
             AddCol("Purpose", "Issue Purpose", 200, false);
+            AddCol("LayoutName", "Layout name", 160, false);
+            AddCol("DwgPath", "DWG path", 320, false);
             foreach (var k in _customKeys) AddCol("cust::" + k, k, 80, false);
             AddCol("File", "Tên file PDF", 300, true);
 
@@ -238,15 +223,8 @@ namespace CADtools
             dgv.Columns["STT"].DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
             dgv.Columns["Rev"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
 
-            // commit tick ngay khi bam (khong can roi o) cho checkbox
-            dgv.CurrentCellDirtyStateChanged += (s, e) =>
-            { if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit); };
-            // bat trang thai Shift TRUOC khi gia tri commit
-            dgv.CellMouseDown += (s, e) =>
-            {
-                if (e.RowIndex >= 0 && e.ColumnIndex == 0)
-                    _shiftDown = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
-            };
+            dgv.CurrentCellDirtyStateChanged += (s, e) => { if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+            dgv.CellMouseDown += (s, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == 0) _shiftDown = (Control.ModifierKeys & Keys.Shift) == Keys.Shift; };
             dgv.CellValueChanged += (s, e) =>
             {
                 if (_bulk || e.RowIndex < 0) return;
@@ -259,7 +237,6 @@ namespace CADtools
                 {
                     bool isChecked = Convert.ToBoolean(row.Cells[0].Value ?? false);
                     ApplyCheck(sheet, isChecked);
-                    // Shift + tich -> ap dung cung trang thai cho ca dai tu hang tich truoc do
                     if (_shiftDown && _lastCheckRow >= 0 && _lastCheckRow != e.RowIndex)
                     {
                         int a = Math.Min(_lastCheckRow, e.RowIndex);
@@ -278,7 +255,31 @@ namespace CADtools
                     return;
                 }
 
-                // Sua cot du lieu -> cap nhat model roi tinh lai ten file (anh huong dedup nen tinh lai het).
+                if (col == "DwgPath")
+                {
+                    // Nếu sửa DWG path ở 1 sheet thì tất cả sheet dùng cùng DWG cũ cũng phải đổi theo
+                    string oldPath = sheet.DwgPath ?? "";
+                    string newPath = Str(row, "DwgPath");
+                    if (!string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var sh in _sheets)
+                        {
+                            if (string.Equals((sh.DwgPath ?? ""), oldPath, StringComparison.OrdinalIgnoreCase))
+                                sh.DwgPath = newPath;
+                        }
+
+                        // cập nhật UI (các row đang hiển thị)
+                        _bulk = true;
+                        foreach (DataGridViewRow r in dgv.Rows)
+                        {
+                            var sh2 = r.Tag as SheetInfo;
+                            if (sh2 != null && string.Equals((sh2.DwgPath ?? ""), newPath, StringComparison.OrdinalIgnoreCase))
+                                r.Cells["DwgPath"].Value = newPath;
+                        }
+                        _bulk = false;
+                    }
+                }
+
                 CommitRow(row, sheet);
                 UpdateAllPreviews();
             };
@@ -287,94 +288,42 @@ namespace CADtools
             BuildRows();
 
             const int btnTop = 754;
-            btnAll = new Button
-            {
-                Text = "Chọn tất cả",
-                Left = 20,
-                Top = btnTop,
-                Width = 120,
-                Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
-            };
+            btnAll = new Button { Text = "Chọn tất cả", Left = 20, Top = btnTop, Width = 120, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnAll.Click += (s, e) => { _excluded.Clear(); SyncChecks(); UpdateAllPreviews(); };
             Controls.Add(btnAll);
-            btnNone = new Button
-            {
-                Text = "Bỏ chọn tất cả",
-                Left = 148,
-                Top = btnTop,
-                Width = 130,
-                Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
-            };
+
+            btnNone = new Button { Text = "Bỏ chọn tất cả", Left = 148, Top = btnTop, Width = 130, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnNone.Click += (s, e) => { _excluded.Clear(); foreach (var sh in _sheets) _excluded.Add(sh); SyncChecks(); UpdateAllPreviews(); };
             Controls.Add(btnNone);
-            btnExport = new Button
-            {
-                Text = "Xuất Excel",
-                Left = 292,
-                Top = btnTop,
-                Width = 120,
-                Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
-            };
+
+            btnExport = new Button { Text = "Xuất Excel", Left = 292, Top = btnTop, Width = 120, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnExport.Click += (s, e) => ExportToExcel();
             Controls.Add(btnExport);
 
-            btnSave = new Button
-            {
-                Text = "Lưu Sheet Set",
-                Left = rightEdge - 372,
-                Top = btnTop,
-                Width = 150,
-                Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
-            };
+            btnSave = new Button { Text = "Lưu Sheet Set", Left = rightEdge - 372, Top = btnTop, Width = 150, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
             btnSave.Click += (s, e) => { CommitAll(); Action = SsmAction.Save; DialogResult = DialogResult.OK; };
-            btnPrint = new Button
-            {
-                Text = "In PDF",
-                Left = rightEdge - 214,
-                Top = btnTop,
-                Width = 110,
-                Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
-            };
+
+            btnPrint = new Button { Text = "In PDF", Left = rightEdge - 214, Top = btnTop, Width = 110, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
             btnPrint.Click += (s, e) => { CommitAll(); SaveProjectNumber(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
-            btnCancel = new Button
-            {
-                Text = "Đóng",
-                Left = rightEdge - 96,
-                Top = btnTop,
-                Width = 96,
-                Height = 32,
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-                DialogResult = DialogResult.Cancel
-            };
+
+            btnCancel = new Button { Text = "Đóng", Left = rightEdge - 96, Top = btnTop, Width = 96, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.Cancel };
+
             Controls.Add(btnSave); Controls.Add(btnPrint); Controls.Add(btnCancel);
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
             UpdateAllPreviews();
         }
 
-        // Luu/doc Project number trong registry HKCU de nho cho lan sau.
+        // (rest of methods are unchanged from repo except Top offsets already handled above)
         private const string RegPath = @"Software\CADtools";
         private static string LoadSavedProjectNumber()
         {
-            try
-            {
-                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegPath))
-                    return k == null ? "" : (k.GetValue("ProjectNumber") as string ?? "");
-            }
+            try { using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegPath)) return k == null ? "" : (k.GetValue("ProjectNumber") as string ?? ""); }
             catch { return ""; }
         }
         public void SaveProjectNumber()
         {
-            try
-            {
-                using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RegPath))
-                    if (k != null) k.SetValue("ProjectNumber", ProjectNumber ?? "");
-            }
+            try { using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RegPath)) if (k != null) k.SetValue("ProjectNumber", ProjectNumber ?? ""); }
             catch { }
         }
 
@@ -385,64 +334,28 @@ namespace CADtools
 
         private void AddCol(string name, string header, int width, bool readOnly)
         {
-            dgv.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = name,
-                HeaderText = header,
-                Width = width,
-                // Fill mode: dung width lam ty trong -> cac cot tu dan lap day be ngang grid (khong con khoang trong ben phai).
-                FillWeight = width,
-                ReadOnly = readOnly,
-                SortMode = DataGridViewColumnSortMode.NotSortable
-            });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = width, FillWeight = width, ReadOnly = readOnly, SortMode = DataGridViewColumnSortMode.NotSortable });
         }
 
         private void BuildTokenButtons()
         {
-            var tokens = new List<string> {
-                "SheetNumber", "SheetTitle", "SheetDesc", "SheetSetName", "LayoutName", "DwgName",
-                "Revision", "RevisionDate", "IssuePurpose" };
-            // Chi hien cac custom token thuc su dung (CONT, SHT, Project Number); bo cac property
-            // cap Sheet Set khong dung: Client, Project Address Line 1/2/3, Project Name, Total sheet.
+            var tokens = new System.Collections.Generic.List<string> { "SheetNumber", "SheetTitle", "SheetDesc", "SheetSetName", "LayoutName", "DwgName", "Revision", "RevisionDate", "IssuePurpose" };
             var customShow = new[] { "SHT", "CONT", "Project Number" };
             var customKeys = _sheets.SelectMany(s => s.Custom.Keys)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(k => customShow.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(k => Array.FindIndex(customShow, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)));
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(k => customShow.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(k => Array.FindIndex(customShow, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)));
             foreach (var k in customKeys) tokens.Add(k);
 
             foreach (var t in tokens)
             {
-                var b = new Button
-                {
-                    Text = t,
-                    AutoSize = true,
-                    Margin = new Padding(3),
-                    Padding = new Padding(4, 2, 4, 2)
-                };
+                var b = new Button { Text = t, AutoSize = true, Margin = new Padding(3), Padding = new Padding(4, 2, 4, 2) };
                 string token = "$(" + t + ")";
-                b.Click += (s, e) =>
-                {
-                    int i = txtTemplate.SelectionStart;
-                    txtTemplate.Text = txtTemplate.Text.Insert(i, token);
-                    txtTemplate.SelectionStart = i + token.Length;
-                    txtTemplate.Focus();
-                };
+                b.Click += (s, e) => { int i = txtTemplate.SelectionStart; txtTemplate.Text = txtTemplate.Text.Insert(i, token); txtTemplate.SelectionStart = i + token.Length; txtTemplate.Focus(); };
                 pnlTokens.Controls.Add(b);
             }
         }
 
-        private SheetInfo FirstSelected()
-        {
-            foreach (var s in _sheets) if (!_excluded.Contains(s)) return s;
-            return _sheets.Count > 0 ? _sheets[0] : null;
-        }
-
-        // Dung 1 lan: tao du hang tu _sheets (giu Tag = SheetInfo de sua truc tiep).
-        // QUAN TRONG: phai dat _bulk=true trong luc do hang. Neu khong, moi lan gan .Value cho
-        // 1 o se ban su kien CellValueChanged -> CommitRow doc lai CA hang (luc do cac o khac
-        // CHUA duoc gan, dang null) roi ghi "" nguoc vao SheetInfo -> xoa sach Number/Title/
-        // Rev... TRUOC khi chung kip gan -> bang hien ra rong. _bulk chan dung viec do.
         private void BuildRows()
         {
             _bulk = true;
@@ -462,6 +375,8 @@ namespace CADtools
                     row.Cells["Rev"].Value = s.Revision;
                     row.Cells["RevDate"].Value = s.RevisionDate;
                     row.Cells["Purpose"].Value = s.IssuePurpose;
+                    row.Cells["LayoutName"].Value = s.LayoutName;
+                    row.Cells["DwgPath"].Value = s.DwgPath;
                     foreach (var k in _customKeys)
                     {
                         string v; s.Custom.TryGetValue(k, out v);
@@ -472,7 +387,6 @@ namespace CADtools
             finally { _bulk = false; }
         }
 
-        // Dong bo cot tick voi _excluded (sau khi bam Chon/Bo chon tat ca).
         private void SyncChecks()
         {
             _bulk = true;
@@ -484,7 +398,12 @@ namespace CADtools
             _bulk = false;
         }
 
-        // Tinh lai cot "Tên file PDF" cho tat ca hang (khong dung vao du lieu dang sua).
+        private SheetInfo FirstSelected()
+        {
+            foreach (var s in _sheets) if (!_excluded.Contains(s)) return s;
+            return _sheets.Count > 0 ? _sheets[0] : null;
+        }
+
         private void UpdateAllPreviews()
         {
             if (dgv == null) return;
@@ -492,8 +411,7 @@ namespace CADtools
             string mergedName = null;
             if (chkMerged.Checked)
             {
-                mergedName = SsmNaming.EnsurePdf(SsmNaming.SanitizeFile(
-                    SsmNaming.Resolve(Template, FirstSelected(), true, ProjectNumber)));
+                mergedName = SsmNaming.EnsurePdf(SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, FirstSelected(), true, ProjectNumber)));
                 if (string.IsNullOrWhiteSpace(mergedName)) mergedName = "MergedSheets.pdf";
             }
             foreach (DataGridViewRow row in dgv.Rows)
@@ -514,7 +432,6 @@ namespace CADtools
             }
         }
 
-        // Day gia tri 1 hang vao SheetInfo (de In/Luu deu dung so lieu moi nhat).
         private void CommitRow(DataGridViewRow row, SheetInfo s)
         {
             s.Number = Str(row, "Number");
@@ -522,7 +439,9 @@ namespace CADtools
             s.Revision = Str(row, "Rev");
             s.RevisionDate = Str(row, "RevDate");
             s.IssuePurpose = Str(row, "Purpose");
-            s.EditableCustomKeys = _customKeys;   // chi ghi nguoc CONT/SHT
+            s.LayoutName = Str(row, "LayoutName");
+            s.DwgPath = Str(row, "DwgPath");
+            s.EditableCustomKeys = _customKeys;
             foreach (var k in _customKeys) s.Custom[k] = Str(row, "cust::" + k);
         }
 
@@ -536,18 +455,12 @@ namespace CADtools
             }
         }
 
-        // Xuat bang hien tai (ke ca chinh sua chua luu) ra CSV UTF-8 co BOM -> Excel mo truc tiep.
         private void ExportToExcel()
         {
             try
             {
                 dgv.EndEdit();
-                using (var dlg = new SaveFileDialog
-                {
-                    Title = "Xuất bảng Sheet Set ra Excel",
-                    Filter = "CSV (mở bằng Excel)|*.csv",
-                    FileName = "SheetSet_" + DateTime.Now.ToString("yyyyMMdd_HHmm") + ".csv"
-                })
+                using (var dlg = new SaveFileDialog { Title = "Xuất bảng Sheet Set ra Excel", Filter = "CSV (mở bằng Excel)|*.csv", FileName = "SheetSet_" + DateTime.Now.ToString("yyyyMMdd_HHmm") + ".csv" })
                 {
                     if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
@@ -575,15 +488,13 @@ namespace CADtools
 
                     File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
 
-                    if (MessageBox.Show("Đã xuất: " + dlg.FileName + Environment.NewLine + "Mở file ngay?",
-                        "Xuất Excel", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                    if (MessageBox.Show("Đã xuất: " + dlg.FileName + Environment.NewLine + "Mở file ngay?", "Xuất Excel", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                         Process.Start(new ProcessStartInfo(dlg.FileName) { UseShellExecute = true });
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Không xuất được: " + ex.Message, "Lỗi",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Không xuất được: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -591,8 +502,7 @@ namespace CADtools
         {
             if (s == null) s = "";
             const string q = "\"";
-            bool needQuote = s.IndexOf(sep, StringComparison.Ordinal) >= 0
-                || s.Contains(q) || s.Contains("\n") || s.Contains("\r");
+            bool needQuote = s.IndexOf(sep, StringComparison.Ordinal) >= 0 || s.Contains(q) || s.Contains("\n") || s.Contains("\r");
             s = s.Replace(q, q + q);
             return needQuote ? q + s + q : s;
         }

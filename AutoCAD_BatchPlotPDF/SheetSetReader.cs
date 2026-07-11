@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
-using AcSm = ACSMCOMPONENTS24Lib;   // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop
+using System.IO;
+using AcSm = ACSMCOMPONENTS24Lib; // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop
 
 namespace CADtools
 {
@@ -16,15 +17,12 @@ namespace CADtools
         public string RevisionDate = "";
         public string IssuePurpose = "";
         public Dictionary<string, string> Custom =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        // Chi cac custom key nay duoc ghi nguoc (form dat = _whitelist: CONT, SHT).
-        // Neu null -> KHONG ghi custom nao (tranh dung vao property cap Sheet Set khac -> mat/hong).
         public List<string> EditableCustomKeys = null;
 
-        // Tham chieu COM song de ghi nguoc vao .dst (dat boi SheetSetReader.ReadOpenSheetSets).
-        public object Com;      // AcSm.IAcSmSheet
-        public object DbCom;    // AcSm.IAcSmDatabase
+        public object Com; // AcSm.IAcSmSheet
+        public object DbCom; // AcSm.IAcSmDatabase
     }
 
     public static class SheetSetReader
@@ -50,8 +48,31 @@ namespace CADtools
             return result;
         }
 
+        // NEW: Đọc sheet từ file DST (không cần sheet set đang mở)
+        public static List<SheetInfo> ReadFromDst(string dstPath)
+        {
+            if (string.IsNullOrWhiteSpace(dstPath)) return new List<SheetInfo>();
+            if (!File.Exists(dstPath)) throw new FileNotFoundException("Không tìm thấy DST", dstPath);
+
+            var result = new List<SheetInfo>();
+
+            // Mở database từ file .dst (API đã thấy trong SSM PROBE)
+            var db = new AcSm.AcSmDatabase();
+            db.SetFileName(dstPath);
+            db.LoadFromFile(dstPath);
+
+            AcSm.IAcSmSheetSet ss = db.GetSheetSet();
+            if (ss == null) return result;
+
+            string ssName = Safe(() => ss.GetName());
+            var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
+
+            CollectSheets(ss, db, ssName, ssCustom, result);
+            return result;
+        }
+
         private static void CollectSheets(AcSm.IAcSmSubset subset, AcSm.IAcSmDatabase db, string ssName,
-            Dictionary<string, string> ssCustom, List<SheetInfo> outList)
+        Dictionary<string, string> ssCustom, List<SheetInfo> outList)
         {
             AcSm.IAcSmEnumComponent en = subset.GetSheetEnumerator();
             en.Reset();
@@ -61,7 +82,6 @@ namespace CADtools
                 var sheet = comp as AcSm.IAcSmSheet;
                 if (sheet != null)
                 {
-                    // Revision/RevisionDate/IssuePurpose nam tren IAcSmSheet2 (xac dinh bang SSMPROBE).
                     var s2 = sheet as AcSm.IAcSmSheet2;
                     var si = new SheetInfo
                     {
@@ -73,7 +93,7 @@ namespace CADtools
                         RevisionDate = s2 == null ? "" : Safe(() => s2.GetRevisionDate()),
                         IssuePurpose = s2 == null ? "" : Safe(() => s2.GetIssuePurpose())
                     };
-                    si.Com = sheet;   // giu tham chieu COM de ghi nguoc
+                    si.Com = sheet;
                     si.DbCom = db;
 
                     try
@@ -95,13 +115,13 @@ namespace CADtools
 
                     if (string.IsNullOrEmpty(si.Revision))
                         si.Revision = FromCustom(si.Custom, "Revision", "RevisionNumber",
-                            "Sheet revision number", "Revision Number");
+                        "Sheet revision number", "Revision Number");
                     if (string.IsNullOrEmpty(si.RevisionDate))
                         si.RevisionDate = FromCustom(si.Custom, "RevisionDate",
-                            "Sheet revision date", "Revision Date");
+                        "Sheet revision date", "Revision Date");
                     if (string.IsNullOrEmpty(si.IssuePurpose))
                         si.IssuePurpose = FromCustom(si.Custom, "IssuePurpose", "Purpose",
-                            "Sheet issue purpose", "Issue Purpose");
+                        "Sheet issue purpose", "Issue Purpose");
 
                     outList.Add(si);
                 }
@@ -122,8 +142,6 @@ namespace CADtools
                 AcSm.IAcSmEnumProperty pe = bag.GetPropertyEnumerator();
                 pe.Reset();
                 string name;
-                // QUAN TRONG: pe.Next tra ve 'out AcSmCustomPropertyValue' (COCLASS), KHONG phai
-                // interface IAcSmCustomPropertyValue -> khai bao bang interface se bao CS1503.
                 AcSm.AcSmCustomPropertyValue val;
                 pe.Next(out name, out val);
                 while (!string.IsNullOrEmpty(name))

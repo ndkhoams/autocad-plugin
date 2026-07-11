@@ -9,8 +9,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Windows.Forms;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
-using Exception = System.Exception;   // tranh nhap nhang voi Autodesk.AutoCAD.Runtime.Exception
+using Exception = System.Exception; // tranh nhap nhang voi Autodesk.AutoCAD.Runtime.Exception
+using AcSm = ACSMCOMPONENTS24Lib;
 
 [assembly: CommandClass(typeof(CADtools.CadToolsSheetSetCommand))]
 
@@ -37,7 +39,8 @@ namespace CADtools
                 foreach (var kv in s.Custom)
                     if (!map.ContainsKey(kv.Key)) map[kv.Key] = kv.Value;
             }
-            // Project number nhap tay tu form CADTOOLS (COM khong doc duoc gia tri that) -> ghi de token.
+
+            // Project number nhap tay tu form (COM khong doc duoc gia tri that) -> ghi de token.
             if (!string.IsNullOrEmpty(projectNumberOverride))
             {
                 map["Project Number"] = projectNumberOverride;
@@ -88,11 +91,13 @@ namespace CADtools
             if (doc == null) return;
             Editor ed = doc.Editor;
 
+            // 1) Default: doc sheet set dang mo (SSM hien hanh)
+            // NOTE: Dùng List<SheetInfo> để tránh bị nhầm với System.Collections.List (non-generic)
             List<SheetInfo> sheets;
             try { sheets = SheetSetReader.ReadOpenSheetSets(); }
-            catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set: " + ex.Message); return; }
+            catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message); return; }
 
-            if (sheets.Count == 0)
+            if (sheets == null || sheets.Count == 0)
             {
                 ed.WriteMessage("\nChưa mở Sheet Set nào trong Sheet Set Manager.");
                 return;
@@ -102,91 +107,133 @@ namespace CADtools
                 ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
 
-            string template, outDir, projNum;
-            bool merged;
-            PlotNamingForm.SsmAction action;
-            List<SheetInfo> allSheets = sheets;   // giu ban day du de luu nguoc .dst
-            List<SheetInfo> selected;
-            using (var form = new PlotNamingForm(sheets, defDir))
+            // DST path that tu COM database.
+            string dstPath = TryGetCurrentDstPath(sheets);
+
+            // 2) Loop: mo form -> neu chon DST khac thi reload sheets va mo lai form
+            while (true)
             {
-                if (AcadApp.ShowModalDialog(form) != System.Windows.Forms.DialogResult.OK) return;
-                action = form.Action;
-                template = form.Template; outDir = form.OutputDir; merged = form.Merged;
-                projNum = form.ProjectNumber;
-                selected = form.SelectedSheets;
-            }
+                string template, outDir, projNum;
+                bool merged;
+                PlotNamingForm.SsmAction action;
+                List<SheetInfo> allSheets = sheets; // giu ban day du de luu nguoc .dst
+                List<SheetInfo> selected;
 
-            // Bam "Lưu Sheet Set" -> ghi thay doi (Number/Title/Rev/CONT/SHT...) nguoc vao .dst, khong in.
-            if (action == PlotNamingForm.SsmAction.Save)
-            {
-                SaveResult sr;
-                try { sr = SheetSetWriter.Save(allSheets, ed); }
-                catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
-                ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
-                    sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
-                if (sr.RevisionFail > 0)
-                    ed.WriteMessage("\nRevision/Issue purpose không ghi được qua COM (bản AutoCAD này không lộ setter) — sửa trực tiếp trong hộp thoại Sheet Properties của SSM.");
-                foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
-                return;
-            }
+                using (var form = new PlotNamingForm(sheets, defDir, dstPath))
+                {
+                    if (AcadApp.ShowModalDialog(form) != DialogResult.OK) return;
 
-            // Nguoc lai: bam "In PDF" -> chi in cac sheet dang tich.
-            sheets = selected;
-            if (sheets.Count == 0) { ed.WriteMessage("\nBạn chưa chọn sheet nào để in."); return; }
-            Directory.CreateDirectory(outDir);
+                    if (form.DstChanged)
+                    {
+                        dstPath = form.DstPath;
+                        try { sheets = SheetSetReader.ReadFromDst(dstPath); }
+                        catch (Exception ex)
+                        {
+                            ed.WriteMessage("\nKhông đọc được DST: " + ex.Message);
+                            return;
+                        }
+                        if (sheets == null || sheets.Count == 0)
+                        {
+                            ed.WriteMessage("\nDST không có sheet nào.");
+                            return;
+                        }
+                        continue; // open form again with new sheets
+                    }
 
-            if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
-            { ed.WriteMessage("\nĐang có tiến trình in khác, thử lại sau."); return; }
+                    action = form.Action;
+                    template = form.Template;
+                    outDir = form.OutputDir;
+                    merged = form.Merged;
+                    projNum = form.ProjectNumber;
+                    selected = form.SelectedSheets;
+                }
 
-            int ok = 0;
-            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // Bam "Lưu Sheet Set" -> ghi thay doi nguoc vao .dst, khong in.
+                if (action == PlotNamingForm.SsmAction.Save)
+                {
+                    SaveResult sr;
+                    try { sr = SheetSetWriter.Save(allSheets, ed); }
+                    catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
+                    ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
+                        sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
+                    if (sr.RevisionFail > 0)
+                        ed.WriteMessage("\nRevision/Issue purpose không ghi được qua COM (bản AutoCAD này không lộ setter) — sửa trực tiếp trong hộp thoại Sheet Properties của SSM.");
+                    foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
+                    return;
+                }
 
-            // In tung sheet bang Publisher (DSD): KHONG dung PlotEngine cho database side-load.
-            if (merged)
-            {
-                var all = new DsdEntryCollection();
+                // Nguoc lai: bam "In PDF" -> chi in cac sheet dang tich.
+                sheets = selected;
+                if (sheets == null || sheets.Count == 0) { ed.WriteMessage("\nBạn chưa chọn sheet nào để in."); return; }
+                Directory.CreateDirectory(outDir);
+
+                if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
+                { ed.WriteMessage("\nĐang có tiến trình in khác, thử lại sau."); return; }
+
+                int ok = 0;
+                var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // In tung sheet bang Publisher (DSD): KHONG dung PlotEngine cho database side-load.
+                if (merged)
+                {
+                    var all = new DsdEntryCollection();
+                    foreach (var s in sheets)
+                    {
+                        if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
+                        { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
+                        all.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
+                    }
+                    if (all.Count == 0) { ed.WriteMessage("\nKhông có sheet hợp lệ để in."); return; }
+
+                    string mName = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, sheets.Count > 0 ? sheets[0] : null, true, projNum));
+                    if (string.IsNullOrWhiteSpace(mName)) mName = "MergedSheets";
+                    string mFile = Path.Combine(outDir, SsmNaming.EnsurePdf(mName));
+
+                    if (PublishToPdf(all, mFile, outDir, SheetType.MultiPdf, ed))
+                        ed.WriteMessage("\nĐã xuất PDF gộp {0} sheet -> {1}", all.Count, mFile);
+                    return;
+                }
+
                 foreach (var s in sheets)
                 {
                     if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                     { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
-                    all.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
+
+                    string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false, projNum));
+                    if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
+                    string baseName = name; int n = 2;
+                    while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
+                    string file = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
+
+                    var one = new DsdEntryCollection();
+                    one.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
+
+                    if (PublishToPdf(one, file, outDir, SheetType.MultiPdf, ed))
+                    {
+                        ok++;
+                        ed.WriteMessage("\n[OK] " + Path.GetFileName(file));
+                    }
+                    else
+                    {
+                        ed.WriteMessage("\n[LỖI] " + s.Title);
+                    }
                 }
-                if (all.Count == 0) { ed.WriteMessage("\nKhông có sheet hợp lệ để in."); return; }
-
-                string mName = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, sheets.Count > 0 ? sheets[0] : null, true, projNum));
-                if (string.IsNullOrWhiteSpace(mName)) mName = "MergedSheets";
-                string mFile = Path.Combine(outDir, SsmNaming.EnsurePdf(mName));
-
-                if (PublishToPdf(all, mFile, outDir, SheetType.MultiPdf, ed))
-                    ed.WriteMessage("\nĐã xuất PDF gộp {0} sheet -> {1}", all.Count, mFile);
+                ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
                 return;
             }
+        }
 
-            foreach (var s in sheets)
+        private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
+        {
+            try
             {
-                if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
-                { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
-
-                string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false, projNum));
-                if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
-                string baseName = name; int n = 2;
-                while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
-                string file = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
-
-                var one = new DsdEntryCollection();
-                one.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
-
-                if (PublishToPdf(one, file, outDir, SheetType.MultiPdf, ed))
-                {
-                    ok++;
-                    ed.WriteMessage("\n[OK] " + Path.GetFileName(file));
-                }
-                else
-                {
-                    ed.WriteMessage("\n[LỖI] " + s.Title);
-                }
+                if (sheets == null || sheets.Count == 0) return "";
+                var si = sheets[0] as SheetInfo;
+                var db = si?.DbCom as AcSm.IAcSmDatabase;
+                if (db == null) return "";
+                return db.GetFileName() ?? "";
             }
-            ed.WriteMessage("\nHoàn tất: {0}/{1} sheet -> {2}", ok, sheets.Count, outDir);
+            catch { return ""; }
         }
 
         // Publish 1 hoac nhieu DsdEntry ra PDF. BACKGROUNDPLOT=0 (dong bo) + FILEDIA=0 + ForceNoPrompt.
@@ -197,7 +244,7 @@ namespace CADtools
             short bp = (short)AcadApp.GetSystemVariable("BACKGROUNDPLOT");
             short filedia = (short)AcadApp.GetSystemVariable("FILEDIA");
             AcadApp.SetSystemVariable("BACKGROUNDPLOT", 0);
-            AcadApp.SetSystemVariable("FILEDIA", 0);   // TAT hop thoai "Specify PDF File"
+            AcadApp.SetSystemVariable("FILEDIA", 0); // TAT hop thoai "Specify PDF File"
             string dsdFile = Path.Combine(outDir, "_ssm_batch.dsd");
             try
             {
