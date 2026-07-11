@@ -46,7 +46,7 @@ namespace CADtools
             RibbonPanelSource src = new RibbonPanelSource { Title = "SSM Tool" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
-            src.Items.Add(MakeButton("SSP", "Sheet Set Properties", "SSP ",
+            src.Items.Add(MakeButton("SSP", "Sheet Set Manager \n and Printer", "SSP ",
             "Quản lý Sheet Set, in ấn PDF."));
         }
 

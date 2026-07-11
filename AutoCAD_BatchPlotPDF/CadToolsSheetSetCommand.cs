@@ -174,10 +174,20 @@ namespace CADtools
                 if (merged)
                 {
                     var all = new DsdEntryCollection();
+                    // Tối ưu: gom các sheet cùng DWG cạnh nhau để hạn chế mở/đóng file nặng
+                    sheets.Sort((a, b) => string.Compare(a == null ? "" : (a.DwgPath ?? ""), b == null ? "" : (b.DwgPath ?? ""), StringComparison.OrdinalIgnoreCase));
+
                     foreach (var s in sheets)
                     {
                         if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                         { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
+
+                        // Giữ DWG đang mở nếu sheet tiếp theo cùng file
+                        EnsureDwgOpenForSheet(s.DwgPath);
+
+                        // Tối ưu: nếu nhiều sheet liên tiếp cùng 1 DWG thì giữ DWG đang mở để in tiếp (tránh mở/đóng lại file nặng)
+                        // Lưu ý: Publisher vẫn có thể tự load DB, nhưng việc giữ Document mở giúp giảm thời gian trên nhiều máy.
+                        EnsureDwgOpenForSheet(s.DwgPath);
                         all.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
                     }
                     if (all.Count == 0) { ed.WriteMessage("\nKhông có sheet hợp lệ để in."); return; }
@@ -219,9 +229,245 @@ namespace CADtools
                 return;
             }
         }
+ 
 
+ // Cache Document theo DWG để tránh mở/đóng liên tục
+ private static string _openDwgPath = null;
+        private static Document _openDwgDoc = null;
+        private static bool _openDwgOwned = false;
 
- private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
+        private static void EnsureDwgOpenForSheet(string dwgPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dwgPath)) return;
+
+                // Nếu đang đúng DWG thì thôi
+                if (_openDwgDoc != null && string.Equals(_openDwgPath ?? "", dwgPath, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                // Không đóng DWG đã mở: giữ lại để tận dụng cache khi các sheet cùng DWG
+
+                _openDwgPath = dwgPath;
+                _openDwgDoc = null;
+                _openDwgOwned = false;
+
+                // Nếu DWG đã mở sẵn trong AutoCAD thì dùng lại
+                foreach (Document d in AcadApp.DocumentManager)
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(d.Name) && string.Equals(d.Name, dwgPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _openDwgDoc = d;
+                            _openDwgOwned = false;
+                            return;
+                        }
+                    }
+                    catch { }
+                }
+
+                // Nếu chưa mở thì mở nền (không activate) để Publisher dùng lại
+                try
+                {
+                    _openDwgDoc = AcadApp.DocumentManager.Open(dwgPath, false);
+                    _openDwgOwned = true;
+                }
+                catch
+                {
+                    _openDwgDoc = null;
+                    _openDwgOwned = false;
+                }
+            }
+            catch { }
+        }
+
+        // In mỗi sheet 1 PDF bằng PlotEngine, nhóm theo DWG để mở 1 lần rồi plot nhiều layout.
+        private static int PlotPerSheetByPlotEngine(
+        List<SheetInfo> sheets,
+        string template,
+        string projNum,
+        string outDir,
+        HashSet<string> usedNames,
+        Editor ed)
+        {
+            if (sheets == null || sheets.Count == 0) return 0;
+
+            // Nhóm theo DWG
+            var byDwg = new Dictionary<string, List<SheetInfo>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in sheets)
+            {
+                if (s == null) continue;
+                string p = (s.DwgPath ?? "").Trim();
+                if (p.Length == 0) continue;
+
+                List<SheetInfo> list;
+                if (!byDwg.TryGetValue(p, out list))
+                {
+                    list = new List<SheetInfo>();
+                    byDwg[p] = list;
+                }
+                list.Add(s);
+            }
+
+            int ok = 0;
+            foreach (var kv in byDwg)
+            {
+                string dwgPath = kv.Key;
+                var list = kv.Value;
+
+                if (!File.Exists(dwgPath))
+                {
+                    ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + dwgPath);
+                    continue;
+                }
+
+                Document dwgDoc = null;
+                bool openedByTool = false;
+
+                try
+                {
+                    // Dùng lại document nếu đã mở
+                    foreach (Document d in AcadApp.DocumentManager)
+                    {
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(d.Name) && string.Equals(d.Name, dwgPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                dwgDoc = d;
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (dwgDoc == null)
+                    {
+                        dwgDoc = AcadApp.DocumentManager.Open(dwgPath, false);
+                        openedByTool = true;
+                    }
+
+                    if (dwgDoc == null)
+                    {
+                        ed.WriteMessage("\nKhông mở được DWG: " + dwgPath);
+                        continue;
+                    }
+
+                    using (dwgDoc.LockDocument())
+                    {
+                        foreach (var s in list)
+                        {
+                            if (s == null) continue;
+
+                            try
+                            {
+                                string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false, projNum));
+                                if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
+                                string baseName = name; int n = 2;
+                                while (!usedNames.Add(name)) name = baseName + " (" + (n++) + ")";
+                                string pdfFile = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
+
+                                if (PlotLayoutToPdf(dwgDoc, s.LayoutName, pdfFile))
+                                {
+                                    ok++;
+                                    ed.WriteMessage("\n[OK] " + Path.GetFileName(pdfFile));
+                                }
+                                else
+                                {
+                                    ed.WriteMessage("\n[LỖI] " + s.Title);
+                                }
+                            }
+                            catch (Exception ex2)
+                            {
+                                ed.WriteMessage("\n[LỖI] " + s.Title + ": " + ex2.Message);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    if (dwgDoc != null && openedByTool)
+                    {
+                        try { dwgDoc.CloseAndDiscard(); } catch { }
+                    }
+                }
+            }
+
+            return ok;
+        }
+
+        // Plot 1 layout ra 1 file PDF (không dùng Publisher/DSD)
+        private static bool PlotLayoutToPdf(Document dwgDoc, string layoutName, string pdfFile)
+        {
+            if (dwgDoc == null) return false;
+            if (string.IsNullOrWhiteSpace(layoutName)) return false;
+
+            Database db = dwgDoc.Database;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                DBDictionary layoutDict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                if (!layoutDict.Contains(layoutName)) return false;
+
+                ObjectId layoutId = layoutDict.GetAt(layoutName);
+                Layout lo = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
+
+                using (PlotSettings ps = new PlotSettings(lo.ModelType))
+                {
+                    ps.CopyFrom(lo);
+
+                    PlotSettingsValidator psv = PlotSettingsValidator.Current;
+
+                    // cấu hình PDF
+                    try { psv.SetPlotConfigurationName(ps, "DWG To PDF.pc3", null); } catch { }
+                    psv.RefreshLists(ps);
+
+                    psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.Layout);
+                    psv.SetUseStandardScale(ps, true);
+                    psv.SetStdScaleType(ps, StdScaleType.ScaleToFit);
+                    psv.SetPlotCentered(ps, true);
+
+                    PlotInfo pi = new PlotInfo();
+                    pi.Layout = layoutId;
+                    pi.OverrideSettings = ps;
+
+                    PlotInfoValidator piv = new PlotInfoValidator();
+                    piv.MediaMatchingPolicy = MatchingPolicy.MatchEnabled;
+                    piv.Validate(pi);
+
+                    if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting) return false;
+
+                    using (PlotEngine pe = PlotFactory.CreatePublishEngine())
+                    {
+                        PlotProgressDialog ppd = new PlotProgressDialog(false, 1, true);
+                        using (ppd)
+                        {
+                            ppd.OnBeginPlot();
+                            ppd.IsVisible = false;
+
+                            pe.BeginPlot(ppd, null);
+                            pe.BeginDocument(pi, dwgDoc.Name, null, 1, true, pdfFile);
+
+                            PlotPageInfo ppi = new PlotPageInfo();
+                            pe.BeginPage(ppi, pi, true, null);
+                            pe.BeginGenerateGraphics(null);
+                            pe.EndGenerateGraphics(null);
+                            pe.EndPage(null);
+
+                            pe.EndDocument(null);
+                            pe.EndPlot(null);
+                            ppd.OnEndPlot();
+                        }
+                    }
+
+                    tr.Commit();
+                }
+
+                return File.Exists(pdfFile);
+            }
+        }
+
+        private static string TryGetCurrentDstPath(List<SheetInfo> sheets)
         {
             try
             {
