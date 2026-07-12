@@ -631,7 +631,10 @@ namespace CADtools
                 if (br == null) continue;
 
                 string name = ResolveBlockName(tr, br);
-                if (!string.Equals(name, targetName, StringComparison.OrdinalIgnoreCase)) continue;
+                // Lọc theo prefix: "KHUNG_MT" sẽ bắt cả "KHUNG_MT", "KHUNG_MT_A1", ...
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(targetName)
+                    || !name.StartsWith(targetName, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 // window = polyline RECT khung in trong block (kể cả nested block).
                 // KHÔNG fallback sang GeometricExtents để tránh in sai vùng.
