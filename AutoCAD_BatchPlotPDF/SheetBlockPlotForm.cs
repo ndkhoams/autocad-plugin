@@ -23,6 +23,7 @@ namespace CADtools
 
         private TextBox _txtBlockName;
         private Button _btnRefresh;
+        private Button _btnFilterWindow;
         private Button _btnBrowseOut;
         private TextBox _txtOutDir;
         private ComboBox _cbPaper;
@@ -39,6 +40,9 @@ namespace CADtools
 
         // Trạng thái thu gọn theo Hạng mục
         private readonly Dictionary<string, bool> _hmCollapsed = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        // Filter theo vùng quét: lưu handle các block nằm trong selection (null = không lọc)
+        private HashSet<string> _windowFilterHandles = null;
 
         private readonly List<BlockItem> _items = new List<BlockItem>();
 
@@ -66,36 +70,41 @@ namespace CADtools
             _doc = doc;
             _ed = doc.Editor;
 
-            Text = "Sheet Block Manager and Printer - SBP";
+            Text = "Sheet Block Manager and Printer - V1.0 ©KhoaND";
             StartPosition = FormStartPosition.CenterParent;
             ClientSize = new Size(1250, 720);
             Font = new System.Drawing.Font("Segoe UI", 9.75f);
             MinimumSize = new Size(900, 600);
 
             int y = 10;
-            Controls.Add(new Label { Left = 10, Top = y + 4, Width = 100, Height = 24, Text = "Block:", TextAlign = ContentAlignment.MiddleLeft });
-            _txtBlockName = new TextBox { Left = 110, Top = y, Width = 210, Height = 28, Text = "KHUNG_MT" };
+            Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Block Khung Tên:", TextAlign = ContentAlignment.MiddleLeft });
+            _txtBlockName = new TextBox { Left = 150, Top = y, Width = 210, Height = 28, Text = "KHUNG_MT" };
             Controls.Add(_txtBlockName);
 
-            _btnRefresh = new Button { Left = 330, Top = y, Width = 90, Height = 28, Text = "Refresh" };
+            _btnRefresh = new Button { Left = 370, Top = y, Width = 90, Height = 28, Text = "Refresh" };
             _btnRefresh.Click += (s, e) => RefreshList();
             Controls.Add(_btnRefresh);
 
-            Controls.Add(new Label { Left = 435, Top = y + 4, Width = 55, Height = 24, Text = "Paper:", TextAlign = ContentAlignment.MiddleLeft });
-            _cbPaper = new ComboBox { Left = 490, Top = y, Width = 430, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            _btnFilterWindow = new Button { Left = 465, Top = y, Width = 150, Height = 28, Text = "Chọn vùng in" };
+            _btnFilterWindow.Click += (s, e) => FilterByWindow();
+            Controls.Add(_btnFilterWindow);
+
+            // Dời nhóm Paper/Nét in sang phải để không bị đè với nút "Lọc vùng"
+            Controls.Add(new Label { Left = 645, Top = y + 4, Width = 75, Height = 24, Text = "Khổ giấy:", TextAlign = ContentAlignment.MiddleLeft });
+            _cbPaper = new ComboBox { Left = 720, Top = y, Width = 330, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbPaper);
 
-            Controls.Add(new Label { Left = 930, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
-            _cbStyle = new ComboBox { Left = 990, Top = y, Width = 240, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            Controls.Add(new Label { Left = 1070, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
+            _cbStyle = new ComboBox { Left = 1130, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbStyle);
 
             // Fit luôn bật -> bỏ checkbox (không hiển thị)
 
             y += 38;
             Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Output folder:", TextAlign = ContentAlignment.MiddleLeft });
-            _txtOutDir = new TextBox { Left = 150, Top = y, Width = 770, Height = 28, Text = DefaultOutDir() };
+            _txtOutDir = new TextBox { Left = 150, Top = y, Width = 900, Height = 28, Text = DefaultOutDir() };
             Controls.Add(_txtOutDir);
-            _btnBrowseOut = new Button { Left = 930, Top = y, Width = 40, Height = 28, Text = "..." };
+            _btnBrowseOut = new Button { Left = 1060, Top = y, Width = 40, Height = 28, Text = "..." };
             _btnBrowseOut.Click += (s, e) =>
             {
                 using (var d = new FolderBrowserDialog())
@@ -145,9 +154,9 @@ namespace CADtools
             });
             // ATT editable
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "HangMuc", HeaderText = "HẠNG MỤC", FillWeight = 180, ReadOnly = false, SortMode = DataGridViewColumnSortMode.NotSortable });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "KyHieu", HeaderText = "KÝ HIỆU", FillWeight = 120, ReadOnly = false, SortMode = DataGridViewColumnSortMode.NotSortable });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "KyHieu", HeaderText = "KÝ HIỆU BẢN VẼ", FillWeight = 120, ReadOnly = false, SortMode = DataGridViewColumnSortMode.NotSortable });
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "TenBanVe", HeaderText = "TÊN BẢN VẼ", FillWeight = 260, ReadOnly = false, SortMode = DataGridViewColumnSortMode.NotSortable });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "PdfName", HeaderText = "TÊN PDF", FillWeight = 220, ReadOnly = true });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "PdfName", HeaderText = "TÊN FILE PDF", FillWeight = 220, ReadOnly = true });
 
             // Style 2 cột đầu giống SSP
             try
@@ -259,11 +268,11 @@ namespace CADtools
             _lblSelInfo = new Label { Left = 360, Top = ClientSize.Height - 44, Width = 260, Height = 32, Text = "", Anchor = AnchorStyles.Left | AnchorStyles.Bottom, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(_lblSelInfo);
 
-            _btnPrint = new Button { Left = ClientSize.Width - 240, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "Print", Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
+            _btnPrint = new Button { Left = ClientSize.Width - 240, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "In PDF", Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
             _btnPrint.Click += (s, e) => PrintSelected();
             Controls.Add(_btnPrint);
 
-            _btnClose = new Button { Left = ClientSize.Width - 120, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "Close", Anchor = AnchorStyles.Right | AnchorStyles.Bottom, DialogResult = DialogResult.Cancel };
+            _btnClose = new Button { Left = ClientSize.Width - 120, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "Đóng", Anchor = AnchorStyles.Right | AnchorStyles.Bottom, DialogResult = DialogResult.Cancel };
             Controls.Add(_btnClose);
             CancelButton = _btnClose;
 
@@ -368,7 +377,7 @@ namespace CADtools
                     if (sfd.ShowDialog(this) != DialogResult.OK) return;
 
                     var sb = new StringBuilder();
-                    sb.AppendLine("STT,HẠNG MỤC,KÝ HIỆU,TÊN BV,TÊN PDF");
+                    sb.AppendLine("STT,HẠNG MỤC,KÝ HIỆU BẢN VẼ,TÊN BẢN VẼ,TÊN FILE PDF");
 
                     foreach (DataGridViewRow row in _grid.Rows)
                     {
@@ -618,7 +627,7 @@ namespace CADtools
                         if (s) selected++;
                     }
                 }
-                _lblSelInfo.Text = "Đã chọn " + selected + "/" + total + " block.";
+                _lblSelInfo.Text = "Đã chọn " + selected + "/" + total + " block khung tên.";
             }
             catch { }
         }
@@ -635,6 +644,15 @@ namespace CADtools
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(targetName)
                     || !name.StartsWith(targetName, StringComparison.OrdinalIgnoreCase))
                     continue;
+
+                // Nếu đang bật filter theo vùng quét: chỉ lấy các block nằm trong selection
+                if (_windowFilterHandles != null && _windowFilterHandles.Count > 0)
+                {
+                    string hh = "";
+                    try { hh = br.Handle.ToString(); } catch { hh = ""; }
+                    if (string.IsNullOrWhiteSpace(hh) || !_windowFilterHandles.Contains(hh))
+                        continue;
+                }
 
                 // window = polyline RECT khung in trong block (kể cả nested block).
                 // KHÔNG fallback sang GeometricExtents để tránh in sai vùng.
@@ -1181,6 +1199,52 @@ namespace CADtools
                     }
                     tr.Commit();
                 }
+            }
+        }
+
+        private void FilterByWindow()
+        {
+            try
+            {
+                // Ẩn form để quay lại màn hình CAD và quét vùng
+                try { this.Hide(); } catch { }
+
+                var opts = new PromptSelectionOptions();
+                opts.MessageForAdding = "\nQuét vùng để lọc khung tên (Enter để xong): ";
+                opts.AllowDuplicates = false;
+
+                PromptSelectionResult res = null;
+                try { res = _ed.GetSelection(opts); } catch { res = null; }
+
+                if (res == null || res.Status != PromptStatus.OK || res.Value == null)
+                {
+                    // Cancel/ESC -> bỏ filter
+                    _windowFilterHandles = null;
+                }
+                else
+                {
+                    var hs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    using (_doc.LockDocument())
+                    using (var tr = _doc.Database.TransactionManager.StartTransaction())
+                    {
+                        foreach (SelectedObject so in res.Value)
+                        {
+                            if (so == null) continue;
+                            var br = tr.GetObject(so.ObjectId, OpenMode.ForRead) as BlockReference;
+                            if (br == null) continue;
+                            try { hs.Add(br.Handle.ToString()); } catch { }
+                        }
+                        tr.Commit();
+                    }
+
+                    _windowFilterHandles = hs.Count > 0 ? hs : null;
+                }
+            }
+            finally
+            {
+                try { this.Show(); this.Activate(); } catch { }
+                try { RefreshList(); } catch { }
             }
         }
 
