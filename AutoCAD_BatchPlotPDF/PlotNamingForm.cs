@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using System.Windows.Forms.VisualStyles;
 
 namespace CADtools
 {
@@ -76,7 +77,7 @@ namespace CADtools
             const int rightEdge = 1180;
 
             // DST picker row
-            var lblDst = new Label { Text = "Sheet set (.dst):", Left = 20, Top = 6, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblDst = new Label { Text = "Sheet set (.dst):", Left = 20, Top = 6, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblDst);
 
             txtDstPath = new TextBox
@@ -112,7 +113,7 @@ namespace CADtools
             // shift the rest of controls down by 30px
             const int dy = 30;
 
-            var lblTpl = new Label { Text = "Tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblTpl = new Label { Text = "Tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblTpl);
             txtTemplate = new TextBox
             {
@@ -126,7 +127,7 @@ namespace CADtools
             txtTemplate.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtTemplate);
 
-            var lblTok = new Label { Text = "Add Field:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblTok = new Label { Text = "Add Field:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblTok);
             pnlTokens = new FlowLayoutPanel
             {
@@ -142,7 +143,7 @@ namespace CADtools
             Controls.Add(pnlTokens);
             BuildTokenButtons();
 
-            var lblProj = new Label { Text = "Project number:", Left = 20, Top = 130 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblProj = new Label { Text = "Project number:", Left = 20, Top = 130 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblProj);
             txtProjNum = new TextBox
             {
@@ -156,7 +157,7 @@ namespace CADtools
             txtProjNum.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtProjNum);
 
-            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 178 + dy, Width = labelW, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 178 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblDir);
             txtOutDir = new TextBox
             {
@@ -268,7 +269,9 @@ namespace CADtools
                 catch { }
             };
 
-            // Header row (subset): 1) Ẩn checkbox "In" 2) Ẩn nút "..." chọn DWG
+            // Header row (subset):
+            // 1) Checkbox "In" ở header để chọn/bỏ toàn bộ sheet trong subset
+            // 2) Ẩn nút "..." chọn DWG
             // 3) Hiển thị nút +/- ở cột STT để thu gọn/bung sheet của subset (như SSM)
             // 4) Hiển thị tên subset ở cột "Sheet Number"
             dgv.CellPainting += (s, e) =>
@@ -285,10 +288,39 @@ namespace CADtools
 
                     string col = dgv.Columns[e.ColumnIndex].Name;
 
-                    // (1) Ẩn checkbox cột In ở header
+                    // (1) Checkbox cột In ở header: chọn/bỏ toàn bộ sheet trong subset
                     if (col == "Sel")
                     {
-                        e.PaintBackground(e.ClipBounds, true);
+                        Rectangle r = e.CellBounds;
+
+                        bool selRow = false;
+                        try { selRow = row.Selected; } catch { }
+                        Color back = selRow ? dgv.DefaultCellStyle.SelectionBackColor : row.DefaultCellStyle.BackColor;
+
+                        using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, r);
+
+                        bool hasAny = false;
+                        bool allChecked = true;
+
+                        try
+                        {
+                            string subset = subsetKey ?? "";
+                            foreach (var sh in _sheets)
+                            {
+                                if (sh == null) continue;
+                                string sp = (sh.SubsetPath ?? "").Trim();
+                                if (!string.Equals(sp, subset, StringComparison.OrdinalIgnoreCase)) continue;
+                                hasAny = true;
+                                if (_excluded.Contains(sh)) { allChecked = false; break; }
+                            }
+                        }
+                        catch { allChecked = false; }
+
+                        var st = (hasAny && allChecked) ? CheckBoxState.CheckedNormal : CheckBoxState.UncheckedNormal;
+                        Size sz = CheckBoxRenderer.GetGlyphSize(e.Graphics, st);
+                        Point pt = new Point(r.X + (r.Width - sz.Width) / 2, r.Y + (r.Height - sz.Height) / 2);
+                        CheckBoxRenderer.DrawCheckBox(e.Graphics, pt, st);
+
                         e.Handled = true;
                         return;
                     }
@@ -381,6 +413,50 @@ namespace CADtools
             dgv.CellClick += (s, e) =>
             {
                 if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+
+                // Click checkbox "In" ở header row -> chọn/bỏ toàn bộ sheet trong subset
+                if (dgv.Columns[e.ColumnIndex].Name == "Sel")
+                {
+                    var r0 = dgv.Rows[e.RowIndex];
+                    if (r0 != null && r0.Tag is string && ((string)r0.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal))
+                    {
+                        string sk0 = "";
+                        try { sk0 = ((string)r0.Tag).Substring("__SUBSET__".Length); } catch { sk0 = ""; }
+                        string subset = (sk0 ?? "").Trim();
+
+                        bool hasAny = false;
+                        bool allChecked = true;
+                        foreach (var sh in _sheets)
+                        {
+                            if (sh == null) continue;
+                            string sp = (sh.SubsetPath ?? "").Trim();
+                            if (!string.Equals(sp, subset, StringComparison.OrdinalIgnoreCase)) continue;
+                            hasAny = true;
+                            if (_excluded.Contains(sh)) { allChecked = false; break; }
+                        }
+
+                        // Toggle: nếu đang allChecked => bỏ chọn hết; ngược lại => chọn hết
+                        bool targetChecked = !(hasAny && allChecked);
+
+                        foreach (var sh in _sheets)
+                        {
+                            if (sh == null) continue;
+                            string sp = (sh.SubsetPath ?? "").Trim();
+                            if (!string.Equals(sp, subset, StringComparison.OrdinalIgnoreCase)) continue;
+
+                            if (targetChecked) _excluded.Remove(sh);
+                            else _excluded.Add(sh);
+                        }
+
+                        SyncChecks();
+                        UpdateAllPreviews();
+                        UpdateSelectionInfo();
+                        dgv.Invalidate();
+                        return;
+                    }
+                }
+
+                // Click vào ô STT của header row để thu gọn/bung subset
                 if (dgv.Columns[e.ColumnIndex].Name != "STT") return;
 
                 var r = dgv.Rows[e.RowIndex];
