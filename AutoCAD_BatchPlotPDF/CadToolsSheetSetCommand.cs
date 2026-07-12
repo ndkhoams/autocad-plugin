@@ -100,21 +100,33 @@ namespace CADtools
             if (doc == null) return;
             Editor ed = doc.Editor;
 
-            // 1) Default: doc sheet set dang mo (SSM hien hanh)
+            // 1) Default: sheet set hiện hành (NẾU có) -> chỉ lấy 1 DST duy nhất
             // NOTE: Dùng List để tránh bị nhầm với System.Collections.List (non-generic)
             GList sheets;
             try { sheets = SheetSetReader.ReadOpenSheetSets(); }
-            catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message); return; }
+            catch (Exception ex) { ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message); sheets = new GList(); }
+
+            if (sheets == null) sheets = new GList();
+
+            // IMPORTANT: ReadOpenSheetSets() có thể trả về sheet của NHIỀU DST đang mở.
+            // Yêu cầu: chỉ hiển thị 1 DST duy nhất trong bảng.
+            // -> Nếu đang có DST hiện hành, lấy path và reload lại CHỈ từ file dst đó.
+            string dstPath = (sheets.Count > 0) ? TryGetCurrentDstPath(sheets) : "";
+            if (!string.IsNullOrWhiteSpace(dstPath))
+            {
+                try { sheets = SheetSetReader.ReadFromDst(dstPath); }
+                catch { /* fallback: giữ danh sách cũ */ }
+            }
 
             // Nếu chưa mở Sheet Set nào thì vẫn mở form để người dùng chọn file .dst.
-            if (sheets == null) sheets = new GList();
 
             string defDir = !string.IsNullOrEmpty(doc.Database.Filename)
             ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
 
             // DST path thật từ COM database (nếu không có sheet set đang mở thì để trống).
-            string dstPath = (sheets.Count > 0) ? TryGetCurrentDstPath(sheets) : "";
+            // NOTE: dstPath đã lấy ở trên (và có thể đã reload sheets theo đúng DST).
+            // Giữ lại biến dstPath để hiển thị lên form và làm default folder.
 
             // 2) Loop: mo form -> neu chon DST khac thi reload sheets va mo lai form
             while (true)
