@@ -32,6 +32,7 @@ namespace CADtools
         private CheckBox chkMerged;
         private DataGridView dgv;
         private Button btnBrowse, btnPrint, btnSave, btnExport, btnCancel, btnAll, btnNone;
+        private Label lblSelInfo;
         private readonly HashSet<SheetInfo> _excluded = new HashSet<SheetInfo>();
         // Subset collapse state (true = collapsed)
         private readonly Dictionary<string, bool> _subsetCollapsed = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -392,6 +393,7 @@ namespace CADtools
                     _subsetCollapsed[sk] = !cur;
                     BuildRows();
                     UpdateAllPreviews();
+                    UpdateSelectionInfo();
                 }
             };
 
@@ -504,6 +506,7 @@ namespace CADtools
 
                 CommitRow(row, sheet);
                 UpdateAllPreviews();
+                UpdateSelectionInfo();
             };
             Controls.Add(dgv);
 
@@ -517,6 +520,19 @@ namespace CADtools
             btnNone = new Button { Text = "Bỏ chọn tất cả", Left = 148, Top = btnTop, Width = 130, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnNone.Click += (s, e) => { _excluded.Clear(); foreach (var sh in _sheets) _excluded.Add(sh); SyncChecks(); UpdateAllPreviews(); };
             Controls.Add(btnNone);
+
+            // Info: đã chọn bao nhiêu sheet / tổng
+            lblSelInfo = new Label
+            {
+                Text = "",
+                Left = 430,
+                Top = btnTop + 5,
+                Width = 260,
+                Height = 22,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+                ForeColor = Color.FromArgb(80, 80, 80)
+            };
+            Controls.Add(lblSelInfo);
 
             btnExport = new Button { Text = "Xuất Excel", Left = 292, Top = btnTop, Width = 120, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnExport.Click += (s, e) => ExportToExcel();
@@ -567,6 +583,7 @@ namespace CADtools
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
             UpdateAllPreviews();
+            UpdateSelectionInfo();
         }
 
         // (rest of methods are unchanged from repo except Top offsets already handled above)
@@ -586,6 +603,7 @@ namespace CADtools
         private void ApplyCheck(SheetInfo sheet, bool isChecked)
         {
             if (isChecked) _excluded.Remove(sheet); else _excluded.Add(sheet);
+            UpdateSelectionInfo();
         }
 
         private void AddCol(string name, string header, int width, bool readOnly)
@@ -685,6 +703,7 @@ namespace CADtools
                 if (s != null) row.Cells["Sel"].Value = !_excluded.Contains(s);
             }
             _bulk = false;
+            UpdateSelectionInfo();
         }
 
         private SheetInfo FirstSelected()
@@ -742,6 +761,19 @@ namespace CADtools
                 var s = row.Tag as SheetInfo;
                 if (s != null) CommitRow(row, s);
             }
+        }
+
+        private void UpdateSelectionInfo()
+        {
+            try
+            {
+                if (lblSelInfo == null) return;
+                int total = _sheets == null ? 0 : _sheets.Count;
+                int selected = total - (_excluded == null ? 0 : _excluded.Count);
+                if (selected < 0) selected = 0;
+                lblSelInfo.Text = "Đã chọn " + selected + "/" + total + " sheet.";
+            }
+            catch { }
         }
 
         private void ExportToExcel()
