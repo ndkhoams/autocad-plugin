@@ -43,7 +43,7 @@ namespace CADtools
             RibbonTab tab = new RibbonTab { Title = "MTECH", Id = TabId };
             ribbon.Tabs.Add(tab);
 
-            RibbonPanelSource src = new RibbonPanelSource { Title = "SSM Tool" };
+            RibbonPanelSource src = new RibbonPanelSource { Title = "SSP" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
             src.Items.Add(MakeButton("SSP", "Sheet Set Manager \n and Printer", "SSP ",
