@@ -48,6 +48,10 @@ namespace CADtools
 
             src.Items.Add(MakeButton("SSP", "Sheet Set Manager \n and Printer", "SSP ",
             "Quản lý Sheet Set, in ấn PDF."));
+
+            // Chức năng thứ 2
+            src.Items.Add(MakeButton("SBP", "Sheet Block Manager \n and Printer", "SBP ",
+            "Liệt kê & in block khung tên."));
         }
 
         // macro ket thuc bang dau cach = Enter (chay lenh ngay).
