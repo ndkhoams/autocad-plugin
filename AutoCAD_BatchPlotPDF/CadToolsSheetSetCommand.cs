@@ -7,14 +7,17 @@ using Autodesk.AutoCAD.Runtime;
 using CADtools;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Windows.Automation;
 using System.Windows.Forms;
+using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
+using AcSm = ACSMCOMPONENTS24Lib;
+using Exception = System.Exception; // tranh nhap nhang voi Autodesk.AutoCAD.Runtime.Exception
 // NOTE: tránh bị nhầm List của WPF (System.Windows.Documents.List). Chỉ alias cho danh sách SheetInfo.
 using GList = System.Collections.Generic.List<CADtools.SheetInfo>;
-using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
-using Exception = System.Exception; // tranh nhap nhang voi Autodesk.AutoCAD.Runtime.Exception
-using AcSm = ACSMCOMPONENTS24Lib;
 
 [assembly: CommandClass(typeof(CADtools.CadToolsSheetSetCommand))]
 
@@ -110,13 +113,79 @@ namespace CADtools
 
             // IMPORTANT: ReadOpenSheetSets() có thể trả về sheet của NHIỀU DST đang mở.
             // Yêu cầu: chỉ hiển thị 1 DST duy nhất trong bảng.
-            // -> Nếu đang có DST hiện hành, lấy path và reload lại CHỈ từ file dst đó.
-            string dstPath = (sheets.Count > 0) ? TryGetCurrentDstPath(sheets) : "";
+            // -> Ưu tiên DST đang được SSM đang hiển thị (không popup) bằng UI Automation.
+            // Nếu không đọc được từ UI thì mới fallback sang popup.
+            string dstPath = "";
+            try { dstPath = TryGetDstPathFromSsmUi(); } catch { dstPath = ""; }
+
+            try
+            {
+                var paths = new System.Collections.Generic.List<string>();
+                foreach (var si0 in sheets)
+                {
+                    try
+                    {
+                        var db0 = si0 == null ? null : (si0.DbCom as AcSm.IAcSmDatabase);
+                        string p0 = db0 == null ? "" : (db0.GetFileName() ?? "");
+                        if (!string.IsNullOrWhiteSpace(p0) && !paths.Contains(p0, StringComparer.OrdinalIgnoreCase))
+                            paths.Add(p0);
+                    }
+                    catch { }
+                }
+
+                if (string.IsNullOrWhiteSpace(dstPath))
+                {
+                    if (paths.Count == 1)
+                        dstPath = paths[0];
+                    else if (paths.Count > 1)
+                    {
+                        // Hỏi chọn DST đang muốn hiển thị (đúng cái đang show trong SSM)
+                        using (var f = new Form())
+                        {
+                            f.Text = "Chọn Sheet Set (.dst)";
+                            f.StartPosition = FormStartPosition.CenterScreen;
+                            f.ClientSize = new System.Drawing.Size(1200, 320);
+                            f.MinimizeBox = false; f.MaximizeBox = false;
+                            f.FormBorderStyle = FormBorderStyle.FixedDialog;
+                            // Font lớn hơn chút cho dễ nhìn
+                            f.Font = new System.Drawing.Font("Segoe UI", 11f);
+
+                            var lb = new ListBox { Left = 12, Top = 12, Width = 1176, Height = 240, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom, HorizontalScrollbar = true, Font = new System.Drawing.Font("Segoe UI", 11f) };
+                            foreach (var p in paths) lb.Items.Add(p);
+                            // không auto-select dòng đầu tiên; nếu user bấm Cancel/close thì không chọn gì
+                            // (tránh trường hợp không chọn mà vẫn lấy DST đầu tiên)
+
+                            f.Controls.Add(lb);
+
+                            var ok = new Button { Text = "OK", Left = 1012, Top = 264, Width = 84, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.OK };
+                            var cancel = new Button { Text = "Cancel", Left = 1104, Top = 264, Width = 84, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.Cancel };
+                            f.Controls.Add(ok);
+                            f.Controls.Add(cancel);
+                            f.AcceptButton = ok;
+                            f.CancelButton = cancel;
+
+                            var dr = f.ShowDialog();
+
+                            // Cancel/đóng -> hủy luôn, không load tiếp plugin
+                            if (dr != DialogResult.OK) return;
+
+                            // OK nhưng chưa chọn dòng nào -> mặc định lấy DST đầu tiên trong list
+                            if (lb.SelectedItem != null) dstPath = lb.SelectedItem.ToString();
+                            else if (paths.Count > 0) dstPath = paths[0];
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // Nếu chọn/đã có dstPath thì reload sheets chỉ từ file đó.
             if (!string.IsNullOrWhiteSpace(dstPath))
             {
                 try { sheets = SheetSetReader.ReadFromDst(dstPath); }
                 catch { /* fallback: giữ danh sách cũ */ }
             }
+
+            // Nếu chưa mở Sheet Set nào thì vẫn mở form để người dùng chọn file .dst.
 
             // Nếu chưa mở Sheet Set nào thì vẫn mở form để người dùng chọn file .dst.
 
@@ -533,6 +602,51 @@ namespace CADtools
 
                 return File.Exists(pdfFile);
             }
+        }
+
+        // Auto-detect DST currently shown in Sheet Set Manager palette (AutoCAD 2023) via UI Automation.
+        // Best-effort: finds a visible text containing an absolute *.dst path.
+        private static string TryGetDstPathFromSsmUi()
+        {
+            try
+            {
+                foreach (var p in Process.GetProcessesByName("acad"))
+                {
+                    try
+                    {
+                        if (p.MainWindowHandle == IntPtr.Zero) continue;
+                        var acad = AutomationElement.FromHandle(p.MainWindowHandle);
+                        if (acad == null) continue;
+
+                        var texts = acad.FindAll(TreeScope.Descendants,
+                         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text));
+
+                        foreach (AutomationElement t in texts)
+                        {
+                            try
+                            {
+                                string s = t.Current.Name;
+                                if (string.IsNullOrWhiteSpace(s)) continue;
+                                int i = s.IndexOf(".dst", StringComparison.OrdinalIgnoreCase);
+                                if (i < 0) continue;
+                                s = s.Trim();
+
+                                // accept absolute drive path or UNC
+                                if (!(s.Contains(":\\") || s.StartsWith("\\\\"))) continue;
+
+                                // trim to end of .dst
+                                int j = s.IndexOf(".dst", StringComparison.OrdinalIgnoreCase);
+                                if (j >= 0) s = s.Substring(0, j + 4);
+                                return s;
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return "";
         }
 
         private static string TryGetCurrentDstPath(GList sheets)
