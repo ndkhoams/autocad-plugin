@@ -43,6 +43,17 @@ namespace CADtools
 
         // Filter theo vùng quét: lưu handle các block nằm trong selection (null = không lọc)
         private HashSet<string> _windowFilterHandles = null;
+        // Map hiển thị khổ giấy (A0/A1/A2/A3) -> canonical media name (ISO_full_bleed_...)
+        private readonly Dictionary<string, string> _paperMediaMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+             {
+             { "A0", "ISO_full_bleed_A0_(1189.00_x_841.00_MM)" },
+             { "A1", "ISO_full_bleed_A1_(841.00_x_594.00_MM)" },
+             { "A2", "ISO_full_bleed_A2_(594.00_x_420.00_MM)" },
+             { "A3", "ISO_full_bleed_A3_(420.00_x_297.00_MM)" },
+             };
+
+        // NOTE (UI): combobox _cbPaper sẽ hiển thị A0/A1/A2/A3.
+        // Khi in: map A0/A1/A2/A3 -> ISO_full_bleed_* bằng _paperMediaMap.
 
         private readonly List<BlockItem> _items = new List<BlockItem>();
 
@@ -78,7 +89,7 @@ namespace CADtools
 
             int y = 10;
             Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Block Khung Tên:", TextAlign = ContentAlignment.MiddleLeft });
-            _txtBlockName = new TextBox { Left = 150, Top = y, Width = 210, Height = 28, Text = "KHUNG_MT" };
+            _txtBlockName = new TextBox { Left = 150, Top = y, Width = 210, Height = 28, Text = "KHUNG" };
             Controls.Add(_txtBlockName);
 
             _btnRefresh = new Button { Left = 370, Top = y, Width = 90, Height = 28, Text = "Refresh" };
@@ -91,20 +102,20 @@ namespace CADtools
 
             // Dời nhóm Paper/Nét in sang phải để không bị đè với nút "Lọc vùng"
             Controls.Add(new Label { Left = 645, Top = y + 4, Width = 75, Height = 24, Text = "Khổ giấy:", TextAlign = ContentAlignment.MiddleLeft });
-            _cbPaper = new ComboBox { Left = 720, Top = y, Width = 330, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbPaper = new ComboBox { Left = 720, Top = y, Width = 100, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbPaper);
 
-            Controls.Add(new Label { Left = 1070, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
-            _cbStyle = new ComboBox { Left = 1130, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            Controls.Add(new Label { Left = 840, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
+            _cbStyle = new ComboBox { Left = 900, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbStyle);
 
             // Fit luôn bật -> bỏ checkbox (không hiển thị)
 
             y += 38;
             Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Output folder:", TextAlign = ContentAlignment.MiddleLeft });
-            _txtOutDir = new TextBox { Left = 150, Top = y, Width = 900, Height = 28, Text = DefaultOutDir() };
+            _txtOutDir = new TextBox { Left = 150, Top = y, Width = 670, Height = 28, Text = DefaultOutDir() };
             Controls.Add(_txtOutDir);
-            _btnBrowseOut = new Button { Left = 1060, Top = y, Width = 40, Height = 28, Text = "..." };
+            _btnBrowseOut = new Button { Left = 830, Top = y, Width = 40, Height = 28, Text = "..." };
             _btnBrowseOut.Click += (s, e) =>
             {
                 using (var d = new FolderBrowserDialog())
@@ -125,7 +136,9 @@ namespace CADtools
                 AllowUserToAddRows = false,
                 RowHeadersVisible = false,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                // Chỉ highlight ô đang chọn, không highlight cả hàng
+                SelectionMode = DataGridViewSelectionMode.CellSelect,
+                MultiSelect = false,
                 ReadOnly = false
             };
 
@@ -440,10 +453,10 @@ namespace CADtools
                         try
                         {
                             _cbPaper.Items.Clear();
-                            _cbPaper.Items.Add("ISO_full_bleed_A0_(1189.00_x_841.00_MM)");
-                            _cbPaper.Items.Add("ISO_full_bleed_A1_(841.00_x_594.00_MM)");
-                            _cbPaper.Items.Add("ISO_full_bleed_A2_(594.00_x_420.00_MM)");
-                            _cbPaper.Items.Add("ISO_full_bleed_A3_(420.00_x_297.00_MM)");
+                            _cbPaper.Items.Add("A0");
+                            _cbPaper.Items.Add("A1");
+                            _cbPaper.Items.Add("A2");
+                            _cbPaper.Items.Add("A3");
                             _cbPaper.SelectedIndex = 3;
                         }
                         catch { }
@@ -955,7 +968,20 @@ namespace CADtools
 
         private void PrintSelected()
         {
-            string paper = Convert.ToString(_cbPaper.SelectedItem ?? "");
+            // UI hiển thị A0/A1/A2/A3, nhưng khi plot phải dùng canonical media name ISO_full_bleed_...
+            string paperKey = Convert.ToString(_cbPaper.SelectedItem ?? "A3");
+            string paper = paperKey;
+            try
+            {
+                if (_paperMediaMap != null && !string.IsNullOrWhiteSpace(paperKey))
+                {
+                    string canon;
+                    if (_paperMediaMap.TryGetValue(paperKey, out canon) && !string.IsNullOrWhiteSpace(canon))
+                        paper = canon;
+                }
+            }
+            catch { }
+
             string styleSheet = Convert.ToString(_cbStyle == null ? "" : (_cbStyle.SelectedItem ?? ""));
             bool fit = true; // luôn fit
 
@@ -976,7 +1002,7 @@ namespace CADtools
 
             if (selected.Count == 0)
             {
-                MessageBox.Show(this, "Bạn chưa chọn dòng nào.", "SBP", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Bạn chưa chọn dòng nào.", "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -998,7 +1024,7 @@ namespace CADtools
                 }
             }
 
-            MessageBox.Show(this, "Done.\nOK: " + ok + "\nFail: " + fail, "SBP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "Hoàn thành.\nIn thành công: " + ok + "\nIn lỗi: " + fail, "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
