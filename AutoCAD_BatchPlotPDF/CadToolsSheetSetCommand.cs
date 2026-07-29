@@ -102,7 +102,7 @@ namespace CADtools
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             Editor ed = doc.Editor;
-
+            if (!LicenseManager.Ensure(ed)) return; //banquyen
             // 1) Default: sheet set hiện hành (NẾU có) -> chỉ lấy 1 DST duy nhất
             // NOTE: Dùng List để tránh bị nhầm với System.Collections.List (non-generic)
             GList sheets;

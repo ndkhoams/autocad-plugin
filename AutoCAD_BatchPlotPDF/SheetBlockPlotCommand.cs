@@ -11,7 +11,7 @@ namespace CADtools
         {
             var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
-
+            if (!LicenseManager.Ensure(doc.Editor)) return; //banquyen
             using (var f = new SheetBlockPlotForm(doc))
             {
                 Autodesk.AutoCAD.ApplicationServices.Application.ShowModalDialog(f);
