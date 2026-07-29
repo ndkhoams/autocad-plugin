@@ -40,7 +40,7 @@ namespace CADtools
             foreach (RibbonTab t in ribbon.Tabs)
                 if (t.Id == TabId) return;
 
-            RibbonTab tab = new RibbonTab { Title = "MTECH", Id = TabId };
+            RibbonTab tab = new RibbonTab { Title = "SHEET PRINTER", Id = TabId };
             ribbon.Tabs.Add(tab);
 
             RibbonPanelSource src = new RibbonPanelSource { Title = "SSP" };

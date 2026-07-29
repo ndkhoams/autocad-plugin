@@ -74,51 +74,49 @@ namespace CADtools
                 var layRef = sheet.GetLayout();
                 if (layRef != null)
                 {
-                    // Layout name: PHAI doi tab layout THAT trong DWG (COM SetName chi doi tham chieu .dst,
-                    // khong doi ban ve). Chi xu ly khi ten co thay doi so voi luc doc.
+                    var objRefL = layRef as AcSm.IAcSmAcDbObjectReference;
+                    string dwg = s.DwgPath ?? "";
+                    if (objRefL != null)
+                    {
+                        try { string d = objRefL.GetFileName(); if (!string.IsNullOrEmpty(d)) dwg = d; } catch { }
+                    }
+
+                    // Rename layout THAT trong DWG. Dinh danh THEO HANDLE/ObjectId (ben vung), fallback ten cu.
+                    // Chi xu ly khi ten co thay doi so voi luc doc.
                     if (!string.IsNullOrEmpty(s.LayoutName) &&
                         !string.Equals(s.LayoutName, s.OriginalLayoutName ?? "", StringComparison.Ordinal))
                     {
                         try
                         {
-                            var objRefL = layRef as AcSm.IAcSmAcDbObjectReference;
-                            string dwg = "";
-                            string handle = "";
-                            if (objRefL != null)
-                            {
-                                try { dwg = objRefL.GetFileName() ?? ""; } catch { dwg = ""; }
-                                try
-                                {
-                                    var mih = objRefL.GetType().GetMethod("GetHandle");
-                                    if (mih != null)
-                                    {
-                                        object h = mih.Invoke(objRefL, null);
-                                        handle = h == null ? "" : h.ToString();
-                                    }
-                                }
-                                catch { handle = ""; }
-                            }
-                            if (string.IsNullOrEmpty(dwg)) dwg = s.DwgPath ?? "";
-
                             string warn;
-                            bool ok = LayoutRenamer.RenameByHandle(dwg, handle, s.OriginalLayoutName, s.LayoutName, out warn);
+                            bool ok = LayoutRenamer.RenameByHandle(dwg, s.LayoutHandle, s.OriginalLayoutName, s.LayoutName, out warn);
                             if (ok)
                             {
-                                // Dong bo ten vao reference Sheet Set (.dst) - reference name-based, khong co handle.
+                                // CHOT identity theo ObjectId: handle KHONG doi khi rename -> luu vao custom prop
+                                // de cac phien sau tim layout theo handle (khong phu thuoc ten -> khong lech).
+                                string hNow = s.LayoutHandle;
+                                if (string.IsNullOrEmpty(hNow))
+                                    hNow = LayoutRenamer.GetHandleByNameInDwg(dwg, s.LayoutName); // lay handle sau khi rename
+                                if (!string.IsNullOrEmpty(hNow))
+                                {
+                                    s.LayoutHandle = hNow;
+                                    string wH;
+                                    if (!SetOneCustom(sheet, SheetSetReader.LayoutHandleKey, hNow, out wH))
+                                        res.Warnings.Add("Luu handle '" + s.Title + "': " + wH);
+                                }
+                                // Dong bo ten hien thi trong .dst (best-effort; da co handle nen khong bat buoc).
                                 string wSet;
-                                if (!LayoutRenamer.TrySetRefName(objRefL, s.LayoutName, out wSet))
-                                    res.Warnings.Add("Dong bo ten .dst '" + s.Title + "': " + wSet
-                                        + " | Methods: " + LayoutRenamer.DumpMethods(objRefL));
+                                LayoutRenamer.TrySetRefName(objRefL, s.LayoutName, out wSet);
+
                                 s.OriginalLayoutName = s.LayoutName; // tranh rename lai o lan luu sau
                             }
                             else res.Warnings.Add("LayoutName '" + s.Title + "': "
-                                + (string.IsNullOrEmpty(warn) ? "khong doi duoc ten layout." : warn)
-                                + " | Methods: " + LayoutRenamer.DumpMethods(layRef));
+                                + (string.IsNullOrEmpty(warn) ? "khong doi duoc ten layout." : warn));
                         }
                         catch (Exception ex) { res.Warnings.Add("LayoutName '" + s.Title + "': " + ex.Message); }
                     }
 
-                    // DWG path
+                    // DWG path (chi khi thay doi)
                     if (!string.IsNullOrEmpty(s.DwgPath))
                     {
                         try
@@ -126,15 +124,15 @@ namespace CADtools
                             var objRef = layRef as AcSm.IAcSmAcDbObjectReference;
                             if (objRef != null)
                             {
-                                // Thử các tên setter phổ biến (COM interop có thể expose khác nhau)
-                                var t2 = objRef.GetType();
-                                var mi2 = t2.GetMethod("SetFileName") ?? t2.GetMethod("put_FileName") ?? t2.GetMethod("SetPath");
-                                if (mi2 != null) mi2.Invoke(objRef, new object[] { s.DwgPath ?? "" });
-                                else res.Warnings.Add("DwgPath '" + s.Title + "': COM không có SetFileName/put_FileName()");
-                            }
-                            else
-                            {
-                                res.Warnings.Add("DwgPath '" + s.Title + "': LayoutRef không cast được sang IAcSmAcDbObjectReference");
+                                string curDwg = "";
+                                try { curDwg = objRef.GetFileName() ?? ""; } catch { }
+                                if (!string.Equals(curDwg, s.DwgPath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var t2 = objRef.GetType();
+                                    var mi2 = t2.GetMethod("SetFileName") ?? t2.GetMethod("put_FileName") ?? t2.GetMethod("SetPath");
+                                    if (mi2 != null) mi2.Invoke(objRef, new object[] { s.DwgPath ?? "" });
+                                    else res.Warnings.Add("DwgPath '" + s.Title + "': COM khong co SetFileName/put_FileName()");
+                                }
                             }
                         }
                         catch (Exception ex) { res.Warnings.Add("DwgPath '" + s.Title + "': " + ex.Message); }
@@ -157,7 +155,7 @@ namespace CADtools
             // 2) Custom properties (chi cot form quan ly: CONT, SHT) -> qua CustomPropertyBag.
             WriteCustomProps(sheet, s.Custom, s.EditableCustomKeys, s.Title, res);
 
-            // 3) Revision / RevisionDate / IssuePurpose -> IAcSmSheet2 (setter chinh thuc, SSMPROBE xac dinh).
+            // 3) Revision / RevisionDate / IssuePurpose -> IAcSmSheet2 (setter chinh thuc).
             var s2 = sheet as AcSm.IAcSmSheet2;
             if (s2 != null)
             {
@@ -175,10 +173,38 @@ namespace CADtools
             res.SheetsSaved++;
         }
 
+        // Ghi 1 custom property don le (an toan, chi dong den dung key do) - dung de luu handle.
+        private static bool SetOneCustom(AcSm.IAcSmSheet sheet, string key, string value, out string warn)
+        {
+            warn = "";
+            try
+            {
+                var bag = sheet.GetCustomPropertyBag();
+                if (bag == null) { warn = "khong lay duoc property bag"; return false; }
+                AcSm.AcSmCustomPropertyValue cur = null;
+                try { cur = (AcSm.AcSmCustomPropertyValue)bag.GetProperty(key); } catch { }
+                if (cur != null)
+                {
+                    string old = "";
+                    try { object o = cur.GetValue(); old = o == null ? "" : o.ToString(); } catch { }
+                    if (old == (value ?? "")) return true;
+                    cur.SetValue(value ?? "");
+                    bag.SetProperty(key, cur);
+                }
+                else
+                {
+                    var val = new AcSm.AcSmCustomPropertyValue();
+                    TryInitNew(val, sheet); // AcSm can InitNew(owner) truoc khi dung, neu khong -> NullReference
+                    val.SetValue(value ?? "");
+                    bag.SetProperty(key, val);
+                }
+                return true;
+            }
+            catch (Exception ex) { warn = ex.Message; return false; }
+        }
+
         // Cap nhat custom property NGAY tren value object co san de giu nguyen flags/kieu.
         // QUAN TRONG: chi ghi cac key trong editableKeys (CONT, SHT) - la cot form quan ly.
-        // KHONG lap qua toan bo custom (co ca property cap Sheet Set nhu Client/Project) vi ghi
-        // de len chung o cap sheet se lam MAT/hong cac custom property khac tren sheet.
         private static void WriteCustomProps(AcSm.IAcSmSheet sheet, Dictionary<string, string> custom,
         List<string> editableKeys, string title, SaveResult res)
         {
@@ -197,7 +223,6 @@ namespace CADtools
                 value = value ?? "";
                 try
                 {
-                    // GetProperty co the tra ve interface -> cast ve coclass van bien dich & chay.
                     AcSm.AcSmCustomPropertyValue cur = null;
                     try { cur = (AcSm.AcSmCustomPropertyValue)bag.GetProperty(key); } catch { }
 
@@ -207,15 +232,14 @@ namespace CADtools
                         try { object o = cur.GetValue(); old = o == null ? "" : o.ToString(); } catch { }
                         if (old == value) continue; // khong doi -> bo qua, giu nguyen prop
 
-                        // Sua thang tren object co san (giu flags/kieu) roi ghi lai -> on dinh, khong mat prop.
                         cur.SetValue(value);
                         bag.SetProperty(key, cur);
                     }
                     else
                     {
-                        // Prop chua co o cap sheet -> chi tao moi khi that su co gia tri (tranh tao rac).
                         if (value.Length == 0) continue;
                         AcSm.AcSmCustomPropertyValue val = new AcSm.AcSmCustomPropertyValue();
+                        TryInitNew(val, sheet); // InitNew(owner) truoc khi dung
                         val.SetValue(value);
                         bag.SetProperty(key, val);
                     }
@@ -225,6 +249,23 @@ namespace CADtools
                     res.Warnings.Add("Custom '" + key + "' @ '" + title + "': " + ex.Message);
                 }
             }
+        }
+
+        // AcSm yeu cau InitNew(owner) cho object moi tao truoc khi SetProperty (neu khong -> NullReferenceException).
+        private static void TryInitNew(object val, object owner)
+        {
+            if (val == null) return;
+            try
+            {
+                var mi = val.GetType().GetMethod("InitNew");
+                if (mi != null)
+                {
+                    var ps = mi.GetParameters();
+                    if (ps.Length == 1) mi.Invoke(val, new object[] { owner });
+                    else if (ps.Length == 0) mi.Invoke(val, null);
+                }
+            }
+            catch { }
         }
 
         private static string Safe(Func<string> f)

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using AcSm = ACSMCOMPONENTS24Lib; // COM AcSm: namespace CO KEM SO PHIEN BAN (vd 24 tren may nay); doi so cho khop
+using AcSm = ACSMCOMPONENTS24Lib; // COM AcSm: doi so phien ban cho khop
 
 namespace CADtools
 {
@@ -13,7 +13,8 @@ namespace CADtools
         public string Title = "";
         public string Desc = "";
         public string LayoutName = "";
-        public string OriginalLayoutName = ""; // ten layout goc luc doc (de biet co doi ten hay khong)
+        public string OriginalLayoutName = "";
+        public string LayoutHandle = ""; // handle (hex) cua layout - identity ben vung theo ObjectId
         public string DwgPath = "";
         public string Revision = "";
         public string RevisionDate = "";
@@ -29,12 +30,15 @@ namespace CADtools
 
     public static class SheetSetReader
     {
+        // Custom property luu handle layout (tool tu quan ly) de dinh danh theo ObjectId/handle.
+        public const string LayoutHandleKey = "AR_LayoutHandle";
+
         public static List<SheetInfo> ReadOpenSheetSets()
         {
             var result = new List<SheetInfo>();
             AcSm.AcSmSheetSetMgr mgr = new AcSm.AcSmSheetSetMgr();
 
-            using (var resolver = new LayoutNameResolver())
+            using (var locator = new LayoutLocator())
             {
                 AcSm.IAcSmEnumDatabase dbEnum = mgr.GetDatabaseEnumerator();
                 dbEnum.Reset();
@@ -47,21 +51,20 @@ namespace CADtools
                     string ssName = Safe(() => ss.GetName());
                     var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-                    CollectSheets(ss, db, ssName, ssCustom, result, "", resolver);
+                    CollectSheets(ss, db, ssName, ssCustom, result, "", locator);
                 }
             }
             return result;
         }
 
-        // NEW: Đọc sheet từ file DST (không cần sheet set đang mở)
+        // Doc sheet tu file DST (khong can sheet set dang mo)
         public static List<SheetInfo> ReadFromDst(string dstPath)
         {
             if (string.IsNullOrWhiteSpace(dstPath)) return new List<SheetInfo>();
-            if (!File.Exists(dstPath)) throw new FileNotFoundException("Không tìm thấy DST", dstPath);
+            if (!File.Exists(dstPath)) throw new FileNotFoundException("Khong tim thay DST", dstPath);
 
             var result = new List<SheetInfo>();
 
-            // Mở database từ file .dst (API đã thấy trong SSM PROBE)
             var db = new AcSm.AcSmDatabase();
             db.SetFileName(dstPath);
             db.LoadFromFile(dstPath);
@@ -72,15 +75,15 @@ namespace CADtools
             string ssName = Safe(() => ss.GetName());
             var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-            using (var resolver = new LayoutNameResolver())
+            using (var locator = new LayoutLocator())
             {
-                CollectSheets(ss, db, ssName, ssCustom, result, "", resolver);
+                CollectSheets(ss, db, ssName, ssCustom, result, "", locator);
             }
             return result;
         }
 
         private static void CollectSheets(AcSm.IAcSmSubset subset, AcSm.IAcSmDatabase db, string ssName,
-        Dictionary<string, string> ssCustom, List<SheetInfo> outList, string subsetPath, LayoutNameResolver resolver)
+        Dictionary<string, string> ssCustom, List<SheetInfo> outList, string subsetPath, LayoutLocator locator)
         {
             AcSm.IAcSmEnumComponent en = subset.GetSheetEnumerator();
             en.Reset();
@@ -110,34 +113,28 @@ namespace CADtools
                         AcSm.IAcSmAcDbLayoutReference layRef = sheet.GetLayout();
                         if (layRef != null)
                         {
-                            si.LayoutName = Safe(() => layRef.GetName());
+                            string refName = Safe(() => layRef.GetName());
+                            si.LayoutName = refName;
                             var objRef = layRef as AcSm.IAcSmAcDbObjectReference;
-                            if (objRef != null)
+                            if (objRef != null) si.DwgPath = Safe(() => objRef.GetFileName());
+
+                            // Identity theo ObjectId/handle: uu tien handle da luu, roi den ten reference.
+                            string storedHandle = ReadOneCustom(sheet, LayoutHandleKey);
+                            string liveName, handle;
+                            if (locator != null && locator.Resolve(si.DwgPath, storedHandle, refName, out liveName, out handle))
                             {
-                                si.DwgPath = Safe(() => objRef.GetFileName());
-
-                                // Lay handle cua layout de doc ten THAT tu DWG.
-                                string handle = "";
-                                try
-                                {
-                                    var mih = objRef.GetType().GetMethod("GetHandle");
-                                    if (mih != null)
-                                    {
-                                        object h = mih.Invoke(objRef, null);
-                                        handle = h == null ? "" : h.ToString();
-                                    }
-                                }
-                                catch { }
-
-                                // GetName() co the la ten CU (cache trong .dst) -> doc ten layout live tu DWG.
-                                if (resolver != null)
-                                    si.LayoutName = resolver.Resolve(si.DwgPath, handle, si.LayoutName);
+                                if (!string.IsNullOrEmpty(liveName)) si.LayoutName = liveName;
+                                si.LayoutHandle = handle;
+                            }
+                            else
+                            {
+                                si.LayoutHandle = storedHandle; // giu lai neu co (du chua resolve duoc)
                             }
                         }
                     }
                     catch { }
 
-                    si.OriginalLayoutName = si.LayoutName; // luu ten goc de so sanh luc luu
+                    si.OriginalLayoutName = si.LayoutName;
 
                     foreach (var kv in ssCustom) si.Custom[kv.Key] = kv.Value;
                     foreach (var kv in ReadCustomProps(sheet.GetCustomPropertyBag()))
@@ -163,10 +160,27 @@ namespace CADtools
                         string subName = "";
                         try { subName = Safe(() => sub.GetName()); } catch { }
                         string p = string.IsNullOrWhiteSpace(subsetPath) ? subName : (subsetPath + " / " + subName);
-                        CollectSheets(sub, db, ssName, ssCustom, outList, p, resolver);
+                        CollectSheets(sub, db, ssName, ssCustom, outList, p, locator);
                     }
                 }
             }
+        }
+
+        // Doc 1 custom property theo key (tra rong neu khong co).
+        private static string ReadOneCustom(AcSm.IAcSmSheet sheet, string key)
+        {
+            try
+            {
+                var bag = sheet.GetCustomPropertyBag();
+                if (bag == null) return "";
+                AcSm.AcSmCustomPropertyValue val = null;
+                try { val = bag.GetProperty(key) as AcSm.AcSmCustomPropertyValue; } catch { return ""; }
+                if (val == null) return "";
+                object o = null;
+                try { o = val.GetValue(); } catch { }
+                return o == null ? "" : o.ToString();
+            }
+            catch { return ""; }
         }
 
         private static Dictionary<string, string> ReadCustomProps(AcSm.IAcSmCustomPropertyBag bag)

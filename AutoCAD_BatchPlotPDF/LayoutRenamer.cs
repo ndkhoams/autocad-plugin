@@ -8,36 +8,33 @@ using AcRxException = Autodesk.AutoCAD.Runtime.Exception;
 
 namespace CADtools
 {
-    // Đổi tên LAYOUT thật trong DWG mà Sheet Set trỏ tới.
-    // Sheet Set (.dst) chỉ lưu 1 THAM CHIẾU (handle + đường dẫn DWG) đến layout;
-    // gọi COM SetName KHÔNG đổi được tab layout trong bản vẽ. Phải mở DWG, tìm layout
-    // theo handle (fallback theo tên cũ) rồi rename qua LayoutManager, sau đó lưu DWG.
     public static class LayoutRenamer
     {
+        // Doi ten tab layout THAT trong DWG. Uu tien tim theo HANDLE (ben vung), fallback theo ten cu.
         public static bool RenameByHandle(string dwgPath, string handleStr, string originalName, string newName, out string warn)
         {
             warn = "";
             newName = (newName ?? "").Trim();
             originalName = (originalName ?? "").Trim();
 
-            if (string.IsNullOrWhiteSpace(newName)) { warn = "Tên layout mới rỗng."; return false; }
-            if (string.Equals(newName, "Model", StringComparison.OrdinalIgnoreCase)) { warn = "Không thể đặt tên layout là 'Model'."; return false; }
-            if (string.IsNullOrWhiteSpace(dwgPath)) { warn = "Không lấy được đường dẫn DWG."; return false; }
+            if (string.IsNullOrWhiteSpace(newName)) { warn = "Ten layout moi rong."; return false; }
+            if (string.Equals(newName, "Model", StringComparison.OrdinalIgnoreCase)) { warn = "Khong the dat ten layout la 'Model'."; return false; }
+            if (string.IsNullOrWhiteSpace(dwgPath)) { warn = "Khong lay duoc duong dan DWG."; return false; }
 
-            Handle? hnd = null;
-            if (!string.IsNullOrWhiteSpace(handleStr))
-            {
-                try { hnd = new Handle(Convert.ToInt64(handleStr, 16)); }
-                catch { hnd = null; }
-            }
+            Handle? hnd = ParseHandle(handleStr);
 
-            // 1) DWG đang mở trong phiên AutoCAD hiện tại -> rename trực tiếp (live, user tự lưu DWG).
             Document openDoc = FindOpenDocument(dwgPath);
             if (openDoc != null)
                 return RenameInOpenDoc(openDoc, hnd, originalName, newName, out warn);
 
-            // 2) DWG đóng -> side-load, rename, SaveAs (ghi đè file).
             return RenameInSideDb(dwgPath, hnd, originalName, newName, out warn);
+        }
+
+        internal static Handle? ParseHandle(string handleStr)
+        {
+            if (string.IsNullOrWhiteSpace(handleStr)) return null;
+            try { return new Handle(Convert.ToInt64(handleStr, 16)); }
+            catch { return null; }
         }
 
         internal static Document FindOpenDocument(string dwgPath)
@@ -75,9 +72,9 @@ namespace CADtools
                     string oldName = ResolveOldName(db, hnd, originalName);
                     if (oldName == null)
                     {
-                        warn = "Không tìm thấy layout trong DWG đang mở. handle='"
-                            + (hnd.HasValue ? hnd.Value.ToString() : "(rỗng)") + "', tên cũ='" + (originalName ?? "")
-                            + "', DWG='" + SafeFull(doc.Name) + "'. Layout có trong DWG: " + ListLayoutNames(db);
+                        warn = "Khong tim thay layout trong DWG dang mo. handle='"
+                            + (hnd.HasValue ? hnd.Value.ToString() : "(rong)") + "', ten cu='" + (originalName ?? "")
+                            + "', DWG='" + SafeFull(doc.Name) + "'. Layout co trong DWG: " + ListLayoutNames(db);
                         return false;
                     }
                     if (string.Equals(oldName, newName, StringComparison.Ordinal)) return true;
@@ -95,7 +92,7 @@ namespace CADtools
         private static bool RenameInSideDb(string dwgPath, Handle? hnd, string originalName, string newName, out string warn)
         {
             warn = "";
-            if (!File.Exists(dwgPath)) { warn = "Không tìm thấy DWG: " + dwgPath; return false; }
+            if (!File.Exists(dwgPath)) { warn = "Khong tim thay DWG: " + dwgPath; return false; }
 
             var prev = HostApplicationServices.WorkingDatabase;
             try
@@ -103,16 +100,16 @@ namespace CADtools
                 using (var db = new Database(false, true))
                 {
                     try { db.ReadDwgFile(dwgPath, FileOpenMode.OpenForReadAndWriteNoShare, false, null); }
-                    catch (System.Exception ex) { warn = "Không mở được DWG (có thể đang mở ở nơi khác): " + ex.Message; return false; }
+                    catch (System.Exception ex) { warn = "Khong mo duoc DWG (co the dang mo o noi khac): " + ex.Message; return false; }
 
                     db.CloseInput(true);
 
                     string oldName = ResolveOldName(db, hnd, originalName);
                     if (oldName == null)
                     {
-                        warn = "Không tìm thấy layout trong DWG (đóng). handle='"
-                            + (hnd.HasValue ? hnd.Value.ToString() : "(rỗng)") + "', tên cũ='" + (originalName ?? "")
-                            + "', DWG='" + dwgPath + "'. Layout có trong DWG: " + ListLayoutNames(db);
+                        warn = "Khong tim thay layout trong DWG (dong). handle='"
+                            + (hnd.HasValue ? hnd.Value.ToString() : "(rong)") + "', ten cu='" + (originalName ?? "")
+                            + "', DWG='" + dwgPath + "'. Layout co trong DWG: " + ListLayoutNames(db);
                         return false;
                     }
                     if (string.Equals(oldName, newName, StringComparison.Ordinal)) return true;
@@ -122,7 +119,7 @@ namespace CADtools
                     finally { HostApplicationServices.WorkingDatabase = prev; }
 
                     try { db.SaveAs(dwgPath, db.OriginalFileVersion); }
-                    catch (System.Exception ex) { warn = "Đổi tên OK nhưng lưu DWG lỗi: " + ex.Message; return false; }
+                    catch (System.Exception ex) { warn = "Doi ten OK nhung luu DWG loi: " + ex.Message; return false; }
                 }
                 return true;
             }
@@ -131,7 +128,6 @@ namespace CADtools
             finally { HostApplicationServices.WorkingDatabase = prev; }
         }
 
-        // Tìm tên layout HIỆN TẠI (tên cũ) để đưa vào RenameLayout: ưu tiên theo handle, fallback theo tên cũ.
         private static string ResolveOldName(Database db, Handle? hnd, string originalName)
         {
             if (hnd.HasValue)
@@ -144,6 +140,7 @@ namespace CADtools
             return null;
         }
 
+        // Ten layout theo handle (ho tro ca truong hop handle tro toi BlockTableRecord cua layout).
         internal static string GetLayoutNameByHandle(Database db, Handle hnd)
         {
             try
@@ -168,6 +165,47 @@ namespace CADtools
             catch { return null; }
         }
 
+        // Handle (hex) cua Layout theo ten - dung de "chot" identity theo ObjectId/handle.
+        internal static string GetHandleByName(Database db, string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            try
+            {
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var dict = tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead) as DBDictionary;
+                    string h = "";
+                    if (dict != null && dict.Contains(name))
+                    {
+                        var id = dict.GetAt(name);
+                        var lay = tr.GetObject(id, OpenMode.ForRead) as Layout;
+                        if (lay != null) h = lay.Handle.ToString();
+                    }
+                    tr.Commit();
+                    return h;
+                }
+            }
+            catch { return ""; }
+        }
+
+        // Mo DWG (dang mo hoac side-load read-only) va lay handle layout theo ten - dung sau khi rename de chot handle.
+        internal static string GetHandleByNameInDwg(string dwgPath, string name)
+        {
+            try
+            {
+                Document openDoc = FindOpenDocument(dwgPath);
+                if (openDoc != null) return GetHandleByName(openDoc.Database, name);
+                if (string.IsNullOrWhiteSpace(dwgPath) || !File.Exists(dwgPath)) return "";
+                using (var db = new Database(false, true))
+                {
+                    try { db.ReadDwgFile(dwgPath, FileOpenMode.OpenForReadAndAllShare, true, null); }
+                    catch { return ""; }
+                    return GetHandleByName(db, name);
+                }
+            }
+            catch { return ""; }
+        }
+
         private static bool LayoutExists(Database db, string name)
         {
             try
@@ -183,7 +221,6 @@ namespace CADtools
             catch { return false; }
         }
 
-        // Liet ke ten cac layout (tru Model) trong DWG - dung de chan doan khi khong tim thay layout can rename.
         internal static string ListLayoutNames(Database db)
         {
             try
@@ -207,9 +244,7 @@ namespace CADtools
             catch (System.Exception ex) { return "(loi doc: " + ex.Message + ")"; }
         }
 
-        // Cap nhat ten tham chieu layout ben trong Sheet Set (.dst) cho khop ten tab moi.
-        // Reference cua Sheet Set nay NAME-BASED (khong co handle) -> sau khi rename tab PHAI ghi
-        // lai ten vao reference, neu khong .dst se lech voi DWG.
+        // Cap nhat ten hien thi cua reference trong .dst (best-effort). Reference name-based nen day chi de hien thi.
         internal static bool TrySetRefName(object objRef, string newName, out string warn)
         {
             warn = "";
@@ -230,76 +265,58 @@ namespace CADtools
             if (string.IsNullOrEmpty(warn)) warn = "COM khong co SetName()";
             return false;
         }
-
-        // Liet ke method (loc theo tu khoa) cua doi tuong COM - de kham pha API resolve/handle.
-        internal static string DumpMethods(object o)
-        {
-            try
-            {
-                if (o == null) return "(null)";
-                var names = new List<string>();
-                foreach (var m in o.GetType().GetMethods())
-                {
-                    string n = m.Name;
-                    if (n.IndexOf("Handle", StringComparison.OrdinalIgnoreCase) >= 0
-                        || n.IndexOf("Resolve", StringComparison.OrdinalIgnoreCase) >= 0
-                        || n.IndexOf("ObjectId", StringComparison.OrdinalIgnoreCase) >= 0
-                        || n.IndexOf("Name", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        var ps = m.GetParameters();
-                        var pt = new List<string>();
-                        foreach (var p in ps) pt.Add(p.ParameterType.Name);
-                        string sig = n + "(" + string.Join(",", pt) + ")";
-                        if (!names.Contains(sig)) names.Add(sig);
-                    }
-                }
-                return names.Count == 0 ? "(khong co method khop)" : string.Join(" ; ", names);
-            }
-            catch (System.Exception ex) { return "(loi dump: " + ex.Message + ")"; }
-        }
     }
 
-    // Đọc tên layout THẬT (live) từ DWG theo handle, có cache để không mở lại cùng 1 DWG.
-    // Dùng khi ĐỌC Sheet Set: GetName() của reference có thể là tên CŨ (cache trong .dst),
-    // không phản ánh tên tab layout thật sau khi đã rename.
-    public sealed class LayoutNameResolver : IDisposable
+    // Xac dinh layout THAT trong DWG, tra ve (ten hien tai + handle) de dinh danh theo ObjectId/handle.
+    // Uu tien: (1) handle da luu -> ten hien tai; (2) theo ten reference -> lay handle de luu lai.
+    // Cache database: open doc dung truc tiep; DWG dong side-load read-only 1 lan.
+    public sealed class LayoutLocator : IDisposable
     {
         private readonly Dictionary<string, Database> _sideDbs =
             new Dictionary<string, Database>(StringComparer.OrdinalIgnoreCase);
 
-        public string Resolve(string dwgPath, string handleStr, string fallback)
+        public bool Resolve(string dwgPath, string storedHandle, string refName,
+            out string liveName, out string handle)
         {
+            liveName = ""; handle = "";
             try
             {
-                if (string.IsNullOrWhiteSpace(handleStr)) return fallback;
-                Handle hnd;
-                try { hnd = new Handle(Convert.ToInt64(handleStr, 16)); }
-                catch { return fallback; }
+                Database db = GetDb(dwgPath);
+                if (db == null) return false;
 
-                // 1) DWG đang mở -> đọc live từ document database.
-                Document openDoc = LayoutRenamer.FindOpenDocument(dwgPath);
-                if (openDoc != null)
+                Handle? h = LayoutRenamer.ParseHandle(storedHandle);
+                if (h.HasValue)
                 {
-                    string nmOpen = LayoutRenamer.GetLayoutNameByHandle(openDoc.Database, hnd);
-                    return string.IsNullOrEmpty(nmOpen) ? fallback : nmOpen;
+                    string nm = LayoutRenamer.GetLayoutNameByHandle(db, h.Value);
+                    if (!string.IsNullOrEmpty(nm)) { liveName = nm; handle = storedHandle; return true; }
                 }
 
-                // 2) DWG đóng -> side-load read-only (cache theo đường dẫn).
-                if (string.IsNullOrWhiteSpace(dwgPath) || !File.Exists(dwgPath)) return fallback;
-                string key = LayoutRenamer.SafeFull(dwgPath);
-                Database db;
-                if (!_sideDbs.TryGetValue(key, out db))
+                if (!string.IsNullOrWhiteSpace(refName))
                 {
-                    db = new Database(false, true);
-                    try { db.ReadDwgFile(dwgPath, FileOpenMode.OpenForReadAndAllShare, true, null); }
-                    catch { try { db.Dispose(); } catch { } _sideDbs[key] = null; return fallback; }
-                    _sideDbs[key] = db;
+                    string hByName = LayoutRenamer.GetHandleByName(db, refName);
+                    if (!string.IsNullOrEmpty(hByName)) { liveName = refName; handle = hByName; return true; }
                 }
-                if (db == null) return fallback;
-                string nm = LayoutRenamer.GetLayoutNameByHandle(db, hnd);
-                return string.IsNullOrEmpty(nm) ? fallback : nm;
             }
-            catch { return fallback; }
+            catch { }
+            return false;
+        }
+
+        private Database GetDb(string dwgPath)
+        {
+            Document openDoc = LayoutRenamer.FindOpenDocument(dwgPath);
+            if (openDoc != null) return openDoc.Database;
+
+            if (string.IsNullOrWhiteSpace(dwgPath) || !File.Exists(dwgPath)) return null;
+            string key = LayoutRenamer.SafeFull(dwgPath);
+            Database db;
+            if (!_sideDbs.TryGetValue(key, out db))
+            {
+                db = new Database(false, true);
+                try { db.ReadDwgFile(dwgPath, FileOpenMode.OpenForReadAndAllShare, true, null); }
+                catch { try { db.Dispose(); } catch { } _sideDbs[key] = null; return null; }
+                _sideDbs[key] = db;
+            }
+            return db;
         }
 
         public void Dispose()
