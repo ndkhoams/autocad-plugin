@@ -22,6 +22,7 @@ namespace CADtools
         private readonly Editor _ed;
 
         private TextBox _txtBlockName;
+        private Button _btnPickBlock;
         private Button _btnRefresh;
         private Button _btnFilterWindow;
         private Button _btnBrowseOut;
@@ -76,24 +77,28 @@ namespace CADtools
 
             int y = 10;
             Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Block Khung Tên:", TextAlign = ContentAlignment.MiddleLeft });
-            _txtBlockName = new TextBox { Left = 150, Top = y, Width = 210, Height = 28, Text = "KHUNG" };
+            _txtBlockName = new TextBox { Left = 150, Top = y, Width = 150, Height = 28, Text = "KHUNG" };
             Controls.Add(_txtBlockName);
 
-            _btnRefresh = new Button { Left = 370, Top = y, Width = 90, Height = 28, Text = "Refresh" };
-            _btnRefresh.Click += (s, e) => RefreshList();
-            Controls.Add(_btnRefresh);
+            _btnPickBlock = new Button { Left = 302, Top = y, Width = 110, Height = 28, Text = "Chọn khung" };
+            _btnPickBlock.Click += (s, e) => PickBlockName();
+            Controls.Add(_btnPickBlock);
 
-            _btnFilterWindow = new Button { Left = 465, Top = y, Width = 150, Height = 28, Text = "Chọn vùng in" };
+            _btnFilterWindow = new Button { Left = 420, Top = y, Width = 130, Height = 28, Text = "Chọn vùng in" };
             _btnFilterWindow.Click += (s, e) => FilterByWindow();
             Controls.Add(_btnFilterWindow);
 
+            _btnRefresh = new Button { Left = 558, Top = y, Width = 90, Height = 28, Text = "Refresh" };
+            _btnRefresh.Click += (s, e) => RefreshList();
+            Controls.Add(_btnRefresh);
+
             // Dời nhóm Paper/Nét in sang phải để không bị đè với nút "Lọc vùng"
-            Controls.Add(new Label { Left = 645, Top = y + 4, Width = 75, Height = 24, Text = "Khổ giấy:", TextAlign = ContentAlignment.MiddleLeft });
-            _cbPaper = new ComboBox { Left = 720, Top = y, Width = 100, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            Controls.Add(new Label { Left = 685, Top = y + 4, Width = 75, Height = 24, Text = "Khổ giấy:", TextAlign = ContentAlignment.MiddleLeft });
+            _cbPaper = new ComboBox { Left = 760, Top = y, Width = 100, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbPaper);
 
-            Controls.Add(new Label { Left = 840, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
-            _cbStyle = new ComboBox { Left = 900, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            Controls.Add(new Label { Left = 880, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
+            _cbStyle = new ComboBox { Left = 940, Top = y, Width = 290, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbStyle);
 
             // Fit luôn bật -> bỏ checkbox (không hiển thị)
@@ -667,6 +672,87 @@ namespace CADtools
 
             MessageBox.Show(this, "Hoàn thành.\nIn thành công: " + ok + "\nIn lỗi: " + fail, "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
+        }
+
+        // Nút "Chọn khung": ẩn form, cho người dùng pick 1 block khung tên HOẶC External Reference (xref),
+        // rồi điền tên vào ô "Block Khung Tên" và refresh danh sách.
+        // KHÔNG dùng AddAllowedClass (tránh loại nhầm xref) — tự kiểm tra sau khi chọn.
+        private void PickBlockName()
+        {
+            try
+            {
+                // Ẩn form để quay lại màn hình CAD và chọn đối tượng
+                try { this.Hide(); } catch { }
+
+                while (true)
+                {
+                    var peo = new PromptEntityOptions("\nChọn 1 block khung tên hoặc External Reference (xref): ");
+                    peo.AllowNone = false;
+
+                    var per = _ed.GetEntity(peo);
+                    if (per.Status != PromptStatus.OK) return; // ESC / hủy
+
+                    string name = null;
+                    bool isBlockRef = false;
+
+                    using (_doc.LockDocument())
+                    using (var tr = _doc.Database.TransactionManager.StartTransaction())
+                    {
+                        // Cả block thường lẫn xref đều là BlockReference.
+                        var br = tr.GetObject(per.ObjectId, OpenMode.ForRead) as BlockReference;
+                        if (br != null)
+                        {
+                            isBlockRef = true;
+                            var def = tr.GetObject(br.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
+
+                            // Lấy tên thật: block động lấy theo DynamicBlockTableRecord,
+                            // còn lại lấy theo BlockTableRecord (đúng cho cả block thường & xref).
+                            if (br.IsDynamicBlock)
+                            {
+                                var dbtr = tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
+                                if (dbtr != null) name = dbtr.Name;
+                            }
+                            else if (def != null)
+                            {
+                                name = def.Name;
+                            }
+                            else
+                            {
+                                name = br.Name;
+                            }
+                        }
+                        tr.Commit();
+                    }
+
+                    if (!isBlockRef)
+                    {
+                        try { _ed.WriteMessage("\nĐối tượng vừa chọn không phải Block/Xref. Hãy chọn lại (ESC để hủy)."); } catch { }
+                        continue; // cho chọn lại
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        // Nếu tên dạng "xref|block" thì lấy phần sau dấu |
+                        int bar = name.LastIndexOf('|');
+                        if (bar >= 0 && bar < name.Length - 1) name = name.Substring(bar + 1);
+
+                        _txtBlockName.Text = name;
+
+                        // Chọn mới -> bỏ filter vùng cũ để quét lại toàn bộ theo tên
+                        _windowFilterHandles = null;
+                    }
+                    return;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                try { _ed.WriteMessage("\n[LỖI] Chọn block: " + ex.Message); } catch { }
+            }
+            finally
+            {
+                try { this.Show(); this.Activate(); } catch { }
+                try { RefreshList(); } catch { }
+            }
         }
 
         private void FilterByWindow()
