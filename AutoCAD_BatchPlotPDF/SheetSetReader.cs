@@ -13,6 +13,7 @@ namespace CADtools
         public string Title = "";
         public string Desc = "";
         public string LayoutName = "";
+        public string OriginalLayoutName = ""; // ten layout goc luc doc (de biet co doi ten hay khong)
         public string DwgPath = "";
         public string Revision = "";
         public string RevisionDate = "";
@@ -33,18 +34,21 @@ namespace CADtools
             var result = new List<SheetInfo>();
             AcSm.AcSmSheetSetMgr mgr = new AcSm.AcSmSheetSetMgr();
 
-            AcSm.IAcSmEnumDatabase dbEnum = mgr.GetDatabaseEnumerator();
-            dbEnum.Reset();
-            AcSm.IAcSmDatabase db;
-            while ((db = dbEnum.Next()) != null)
+            using (var resolver = new LayoutNameResolver())
             {
-                AcSm.IAcSmSheetSet ss = db.GetSheetSet();
-                if (ss == null) continue;
+                AcSm.IAcSmEnumDatabase dbEnum = mgr.GetDatabaseEnumerator();
+                dbEnum.Reset();
+                AcSm.IAcSmDatabase db;
+                while ((db = dbEnum.Next()) != null)
+                {
+                    AcSm.IAcSmSheetSet ss = db.GetSheetSet();
+                    if (ss == null) continue;
 
-                string ssName = Safe(() => ss.GetName());
-                var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
+                    string ssName = Safe(() => ss.GetName());
+                    var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-                CollectSheets(ss, db, ssName, ssCustom, result, "");
+                    CollectSheets(ss, db, ssName, ssCustom, result, "", resolver);
+                }
             }
             return result;
         }
@@ -68,12 +72,15 @@ namespace CADtools
             string ssName = Safe(() => ss.GetName());
             var ssCustom = ReadCustomProps(ss.GetCustomPropertyBag());
 
-            CollectSheets(ss, db, ssName, ssCustom, result, "");
+            using (var resolver = new LayoutNameResolver())
+            {
+                CollectSheets(ss, db, ssName, ssCustom, result, "", resolver);
+            }
             return result;
         }
 
         private static void CollectSheets(AcSm.IAcSmSubset subset, AcSm.IAcSmDatabase db, string ssName,
-        Dictionary<string, string> ssCustom, List<SheetInfo> outList, string subsetPath)
+        Dictionary<string, string> ssCustom, List<SheetInfo> outList, string subsetPath, LayoutNameResolver resolver)
         {
             AcSm.IAcSmEnumComponent en = subset.GetSheetEnumerator();
             en.Reset();
@@ -106,10 +113,31 @@ namespace CADtools
                             si.LayoutName = Safe(() => layRef.GetName());
                             var objRef = layRef as AcSm.IAcSmAcDbObjectReference;
                             if (objRef != null)
+                            {
                                 si.DwgPath = Safe(() => objRef.GetFileName());
+
+                                // Lay handle cua layout de doc ten THAT tu DWG.
+                                string handle = "";
+                                try
+                                {
+                                    var mih = objRef.GetType().GetMethod("GetHandle");
+                                    if (mih != null)
+                                    {
+                                        object h = mih.Invoke(objRef, null);
+                                        handle = h == null ? "" : h.ToString();
+                                    }
+                                }
+                                catch { }
+
+                                // GetName() co the la ten CU (cache trong .dst) -> doc ten layout live tu DWG.
+                                if (resolver != null)
+                                    si.LayoutName = resolver.Resolve(si.DwgPath, handle, si.LayoutName);
+                            }
                         }
                     }
                     catch { }
+
+                    si.OriginalLayoutName = si.LayoutName; // luu ten goc de so sanh luc luu
 
                     foreach (var kv in ssCustom) si.Custom[kv.Key] = kv.Value;
                     foreach (var kv in ReadCustomProps(sheet.GetCustomPropertyBag()))
@@ -135,7 +163,7 @@ namespace CADtools
                         string subName = "";
                         try { subName = Safe(() => sub.GetName()); } catch { }
                         string p = string.IsNullOrWhiteSpace(subsetPath) ? subName : (subsetPath + " / " + subName);
-                        CollectSheets(sub, db, ssName, ssCustom, outList, p);
+                        CollectSheets(sub, db, ssName, ssCustom, outList, p, resolver);
                     }
                 }
             }

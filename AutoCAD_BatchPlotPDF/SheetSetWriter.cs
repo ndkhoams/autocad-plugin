@@ -69,20 +69,51 @@ namespace CADtools
             if (sheet == null) return;
 
             // 0) Layout reference (DWG path + Layout name)
-            // Lưu ý: COM API tuỳ phiên bản có thể KHÔNG expose setter -> sẽ warning nếu không ghi được.
             try
             {
                 var layRef = sheet.GetLayout();
                 if (layRef != null)
                 {
-                    // Layout name
-                    if (!string.IsNullOrEmpty(s.LayoutName))
+                    // Layout name: PHAI doi tab layout THAT trong DWG (COM SetName chi doi tham chieu .dst,
+                    // khong doi ban ve). Chi xu ly khi ten co thay doi so voi luc doc.
+                    if (!string.IsNullOrEmpty(s.LayoutName) &&
+                        !string.Equals(s.LayoutName, s.OriginalLayoutName ?? "", StringComparison.Ordinal))
                     {
                         try
                         {
-                            var mi = layRef.GetType().GetMethod("SetName");
-                            if (mi != null) mi.Invoke(layRef, new object[] { s.LayoutName ?? "" });
-                            else res.Warnings.Add("LayoutName '" + s.Title + "': COM không có SetName()");
+                            var objRefL = layRef as AcSm.IAcSmAcDbObjectReference;
+                            string dwg = "";
+                            string handle = "";
+                            if (objRefL != null)
+                            {
+                                try { dwg = objRefL.GetFileName() ?? ""; } catch { dwg = ""; }
+                                try
+                                {
+                                    var mih = objRefL.GetType().GetMethod("GetHandle");
+                                    if (mih != null)
+                                    {
+                                        object h = mih.Invoke(objRefL, null);
+                                        handle = h == null ? "" : h.ToString();
+                                    }
+                                }
+                                catch { handle = ""; }
+                            }
+                            if (string.IsNullOrEmpty(dwg)) dwg = s.DwgPath ?? "";
+
+                            string warn;
+                            bool ok = LayoutRenamer.RenameByHandle(dwg, handle, s.OriginalLayoutName, s.LayoutName, out warn);
+                            if (ok)
+                            {
+                                // Dong bo ten vao reference Sheet Set (.dst) - reference name-based, khong co handle.
+                                string wSet;
+                                if (!LayoutRenamer.TrySetRefName(objRefL, s.LayoutName, out wSet))
+                                    res.Warnings.Add("Dong bo ten .dst '" + s.Title + "': " + wSet
+                                        + " | Methods: " + LayoutRenamer.DumpMethods(objRefL));
+                                s.OriginalLayoutName = s.LayoutName; // tranh rename lai o lan luu sau
+                            }
+                            else res.Warnings.Add("LayoutName '" + s.Title + "': "
+                                + (string.IsNullOrEmpty(warn) ? "khong doi duoc ten layout." : warn)
+                                + " | Methods: " + LayoutRenamer.DumpMethods(layRef));
                         }
                         catch (Exception ex) { res.Warnings.Add("LayoutName '" + s.Title + "': " + ex.Message); }
                     }

@@ -69,7 +69,7 @@ namespace CADtools
             _ed = doc.Editor;
             _logic = new SheetBlockPlotLogic(doc);
 
-            Text = "Sheet Block Manager and Printer - V1.0 ©KhoaND";
+            Text = "Sheet Block Manager and Printer - Build.260729 ©KhoaND";
             StartPosition = FormStartPosition.CenterParent;
             ClientSize = new Size(1250, 720);
             Font = new System.Drawing.Font("Segoe UI", 9.75f);
