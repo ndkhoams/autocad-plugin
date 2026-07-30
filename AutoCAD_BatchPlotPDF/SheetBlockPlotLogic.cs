@@ -74,6 +74,9 @@ namespace CADtools
 
             public Extents2d Window { get; set; }         // WCS 2D window
             public bool RectLandscape { get; set; } = true;
+
+            // true: khung KHÔNG có nội dung ATT -> tên PDF đặt theo STT sort được (AssignSttFileNames).
+            public bool AutoNameByStt { get; set; } = false;
         }
 
         // ============================================================
@@ -115,8 +118,65 @@ namespace CADtools
                 Log("[LỖI CollectBlocks] " + ex.Message);
             }
 
+            // Sort đúng thứ tự hiển thị trên grid, rồi đánh STT + đặt tên file
+            // cho các khung KHÔNG có nội dung ATT theo đúng "số thứ tự sort được".
+            SortItemsForDisplay(items);
+            AssignSttFileNames(items);
+
             EnsureUniquePdfNames(items); // chống ghi đè khi trùng KyHieu_TenBanVe
             return items;
+        }
+
+        // Sort đúng như thứ tự hiển thị trên grid của UI:
+        // 1) Hạng mục, 2) Ký hiệu, 3) vị trí (trên->dưới, trái->phải), 4) Tên bản vẽ.
+        private static void SortItemsForDisplay(List<BlockItem> items)
+        {
+            if (items == null || items.Count < 2) return;
+            try
+            {
+                items.Sort((a, b) =>
+                {
+                    string ah = a == null ? "" : (a.HangMuc ?? "");
+                    string bh = b == null ? "" : (b.HangMuc ?? "");
+                    int c = string.Compare(ah, bh, StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+
+                    string ak = a == null ? "" : (a.KyHieu ?? "");
+                    string bk = b == null ? "" : (b.KyHieu ?? "");
+                    c = string.Compare(ak, bk, StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+
+                    // Vị trí: ưu tiên hàng trên trước (Y lớn hơn), rồi cột trái trước (X nhỏ hơn)
+                    double ay = a == null ? 0 : a.PosY;
+                    double by = b == null ? 0 : b.PosY;
+                    if (Math.Abs(ay - by) > 1e-6) return (ay > by) ? -1 : 1;
+
+                    double ax = a == null ? 0 : a.PosX;
+                    double bx = b == null ? 0 : b.PosX;
+                    if (Math.Abs(ax - bx) > 1e-6) return (ax < bx) ? -1 : 1;
+
+                    string at = a == null ? "" : (a.TenBanVe ?? "");
+                    string bt = b == null ? "" : (b.TenBanVe ?? "");
+                    return string.Compare(at, bt, StringComparison.OrdinalIgnoreCase);
+                });
+            }
+            catch { }
+        }
+
+        // Sau khi đã sort: gán STT 1..n; đặt tên file cho khung KHÔNG có ATT theo STT.
+        // Chèn số 0 ở đầu (pad) để file tự sắp đúng thứ tự trong Windows Explorer.
+        private static void AssignSttFileNames(List<BlockItem> items)
+        {
+            if (items == null) return;
+            int pad = Math.Max(2, items.Count.ToString().Length);
+            for (int i = 0; i < items.Count; i++)
+            {
+                var it = items[i];
+                if (it == null) continue;
+                it.Stt = i + 1;
+                if (it.AutoNameByStt)
+                    it.PdfName = "DRAWING_" + it.Stt.ToString().PadLeft(pad, '0') + ".pdf";
+            }
         }
 
         // Chống trùng tên PDF: file thứ 2 sẽ thành ..._2.pdf thay vì đè file thứ 1.
@@ -155,7 +215,7 @@ namespace CADtools
                 if (br == null) continue;
 
                 string name = ResolveBlockName(tr, br);
-                // Lọc theo prefix: "KHUNG_MT" sẽ bắt cả "KHUNG_MT", "KHUNG_MT_A1", ...
+                // Lọc theo prefix: "KHUNG" sẽ bắt cả "KHUNG", "KHUNG_A1", ...
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(targetName)
                     || !name.StartsWith(targetName, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -183,7 +243,8 @@ namespace CADtools
                 string tenBanVe = GetAttr(map, SbpConstants.AttrTenBanVe);
 
                 string pdfBase = (kyHieu + "_" + tenBanVe).Trim('_').Trim();
-                if (string.IsNullOrWhiteSpace(pdfBase)) pdfBase = "DRAWING_" + br.Handle.ToString();
+                // Không có nội dung ATT -> để trống, sẽ đặt tên theo STT sort được (AssignSttFileNames).
+                bool autoNameByStt = string.IsNullOrWhiteSpace(pdfBase);
 
                 items.Add(new BlockItem
                 {
@@ -192,7 +253,8 @@ namespace CADtools
                     KyHieu = kyHieu,
                     HangMuc = hangMuc,
                     TenBanVe = tenBanVe,
-                    PdfName = SanitizeFileName(pdfBase) + ".pdf",
+                    PdfName = autoNameByStt ? "" : (SanitizeFileName(pdfBase) + ".pdf"),
+                    AutoNameByStt = autoNameByStt,
                     Handle = br.Handle.ToString(),
 
                     // Lấy vị trí block theo WCS (đủ để sort trong cùng layout)

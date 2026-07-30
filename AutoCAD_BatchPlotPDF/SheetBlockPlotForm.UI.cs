@@ -213,8 +213,20 @@ namespace CADtools
 
                     // Update lại tên PDF theo logic hiện tại
                     string pdfBase = ((it.KyHieu ?? "") + "_" + (it.TenBanVe ?? "")).Trim('_').Trim();
-                    if (string.IsNullOrWhiteSpace(pdfBase)) pdfBase = "KHUNG_" + (it.Handle ?? "");
-                    it.PdfName = SheetBlockPlotLogic.SanitizeFileName(pdfBase) + ".pdf";
+                    if (string.IsNullOrWhiteSpace(pdfBase))
+                    {
+                        // Không còn nội dung ATT -> đặt tên theo STT sort được (giống lúc load).
+                        it.AutoNameByStt = true;
+                        int sttNum = 0;
+                        int.TryParse(Convert.ToString(row.Cells["Stt"].Value ?? "0"), out sttNum);
+                        int pad = Math.Max(2, _items.Count.ToString().Length);
+                        it.PdfName = "DRAWING_" + sttNum.ToString().PadLeft(pad, '0') + ".pdf";
+                    }
+                    else
+                    {
+                        it.AutoNameByStt = false;
+                        it.PdfName = SheetBlockPlotLogic.SanitizeFileName(pdfBase) + ".pdf";
+                    }
                     try { row.Cells["PdfName"].Value = it.PdfName; } catch { }
 
                     // Ghi ngược vào block (logic)
