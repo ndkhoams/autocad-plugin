@@ -69,7 +69,7 @@ namespace CADtools
             _ed = doc.Editor;
             _logic = new SheetBlockPlotLogic(doc);
 
-            Text = "Sheet Block Manager and Printer - Build.260729 ©KhoaND";
+            Text = "Sheet Block Manager and Printer - Build_260730 - KhoaND13@hotmail.com";
             StartPosition = FormStartPosition.CenterParent;
             ClientSize = new Size(1250, 720);
             Font = new System.Drawing.Font("Segoe UI", 9.75f);
@@ -105,9 +105,9 @@ namespace CADtools
 
             y += 38;
             Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Output folder:", TextAlign = ContentAlignment.MiddleLeft });
-            _txtOutDir = new TextBox { Left = 150, Top = y, Width = 670, Height = 28, Text = DefaultOutDir() };
+            _txtOutDir = new TextBox { Left = 150, Top = y, Width = 1030, Height = 28, Text = DefaultOutDir() };
             Controls.Add(_txtOutDir);
-            _btnBrowseOut = new Button { Left = 830, Top = y, Width = 40, Height = 28, Text = "..." };
+            _btnBrowseOut = new Button { Left = 1190, Top = y, Width = 40, Height = 28, Text = "..." };
             _btnBrowseOut.Click += (s, e) =>
             {
                 using (var d = new FolderBrowserDialog())
@@ -213,7 +213,7 @@ namespace CADtools
 
                     // Update lại tên PDF theo logic hiện tại
                     string pdfBase = ((it.KyHieu ?? "") + "_" + (it.TenBanVe ?? "")).Trim('_').Trim();
-                    if (string.IsNullOrWhiteSpace(pdfBase)) pdfBase = "KHUNG_MT_" + (it.Handle ?? "");
+                    if (string.IsNullOrWhiteSpace(pdfBase)) pdfBase = "KHUNG_" + (it.Handle ?? "");
                     it.PdfName = SheetBlockPlotLogic.SanitizeFileName(pdfBase) + ".pdf";
                     try { row.Cells["PdfName"].Value = it.PdfName; } catch { }
 
@@ -277,7 +277,8 @@ namespace CADtools
             _btnPrint.Click += (s, e) => PrintSelected();
             Controls.Add(_btnPrint);
 
-            _btnClose = new Button { Left = ClientSize.Width - 120, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "Đóng", Anchor = AnchorStyles.Right | AnchorStyles.Bottom, DialogResult = DialogResult.Cancel };
+            _btnClose = new Button { Left = ClientSize.Width - 120, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "Đóng", Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
+            _btnClose.Click += (s, e) => { try { this.Close(); } catch { } }; // modeless: DialogResult khong tu dong dong form
             Controls.Add(_btnClose);
             CancelButton = _btnClose;
 
@@ -458,7 +459,7 @@ namespace CADtools
                                 for (int i = 0; i < _cbStyle.Items.Count; i++)
                                 {
                                     var s = Convert.ToString(_cbStyle.Items[i]);
-                                    if (!string.IsNullOrWhiteSpace(s) && s.IndexOf("monochrome", StringComparison.OrdinalIgnoreCase) >= 0)
+                                    if (!string.IsNullOrWhiteSpace(s) && s.IndexOf("monochrome.ctb", StringComparison.OrdinalIgnoreCase) >= 0)
                                     { idxMono = i; break; }
                                 }
                                 _cbStyle.SelectedIndex = idxMono >= 0 ? idxMono : 0;
@@ -489,7 +490,7 @@ namespace CADtools
             _grid.Rows.Clear();
 
             string target = (_txtBlockName.Text ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(target)) target = "KHUNG_MT";
+            if (string.IsNullOrWhiteSpace(target)) target = "KHUNG";
 
             try
             {

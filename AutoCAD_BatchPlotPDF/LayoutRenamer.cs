@@ -17,9 +17,9 @@ namespace CADtools
             newName = (newName ?? "").Trim();
             originalName = (originalName ?? "").Trim();
 
-            if (string.IsNullOrWhiteSpace(newName)) { warn = "Ten layout moi rong."; return false; }
-            if (string.Equals(newName, "Model", StringComparison.OrdinalIgnoreCase)) { warn = "Khong the dat ten layout la 'Model'."; return false; }
-            if (string.IsNullOrWhiteSpace(dwgPath)) { warn = "Khong lay duoc duong dan DWG."; return false; }
+            if (string.IsNullOrWhiteSpace(newName)) { warn = "Tên layout mới rỗng."; return false; }
+            if (string.Equals(newName, "Model", StringComparison.OrdinalIgnoreCase)) { warn = "Không thể đặt tên layout là 'Model'."; return false; }
+            if (string.IsNullOrWhiteSpace(dwgPath)) { warn = "Không lấy được đường dẫn DWG."; return false; }
 
             Handle? hnd = ParseHandle(handleStr);
 
@@ -72,9 +72,9 @@ namespace CADtools
                     string oldName = ResolveOldName(db, hnd, originalName);
                     if (oldName == null)
                     {
-                        warn = "Khong tim thay layout trong DWG dang mo. handle='"
+                        warn = "Không tìm thấy layout trong DWG đang mở. handle='"
                             + (hnd.HasValue ? hnd.Value.ToString() : "(rong)") + "', ten cu='" + (originalName ?? "")
-                            + "', DWG='" + SafeFull(doc.Name) + "'. Layout co trong DWG: " + ListLayoutNames(db);
+                            + "', DWG='" + SafeFull(doc.Name) + "'. Layout có trong DWG: " + ListLayoutNames(db);
                         return false;
                     }
                     if (string.Equals(oldName, newName, StringComparison.Ordinal)) return true;
@@ -92,7 +92,7 @@ namespace CADtools
         private static bool RenameInSideDb(string dwgPath, Handle? hnd, string originalName, string newName, out string warn)
         {
             warn = "";
-            if (!File.Exists(dwgPath)) { warn = "Khong tim thay DWG: " + dwgPath; return false; }
+            if (!File.Exists(dwgPath)) { warn = "Không tìm thấy DWG: " + dwgPath; return false; }
 
             var prev = HostApplicationServices.WorkingDatabase;
             try
@@ -100,16 +100,16 @@ namespace CADtools
                 using (var db = new Database(false, true))
                 {
                     try { db.ReadDwgFile(dwgPath, FileOpenMode.OpenForReadAndWriteNoShare, false, null); }
-                    catch (System.Exception ex) { warn = "Khong mo duoc DWG (co the dang mo o noi khac): " + ex.Message; return false; }
+                    catch (System.Exception ex) { warn = "Không mở được DWG (có thể đang mở ở nơi khác): " + ex.Message; return false; }
 
                     db.CloseInput(true);
 
                     string oldName = ResolveOldName(db, hnd, originalName);
                     if (oldName == null)
                     {
-                        warn = "Khong tim thay layout trong DWG (dong). handle='"
+                        warn = "Không tìm thấy layout trong DWG (đóng). handle='"
                             + (hnd.HasValue ? hnd.Value.ToString() : "(rong)") + "', ten cu='" + (originalName ?? "")
-                            + "', DWG='" + dwgPath + "'. Layout co trong DWG: " + ListLayoutNames(db);
+                            + "', DWG='" + dwgPath + "'. Layout có trong DWG: " + ListLayoutNames(db);
                         return false;
                     }
                     if (string.Equals(oldName, newName, StringComparison.Ordinal)) return true;
@@ -119,7 +119,7 @@ namespace CADtools
                     finally { HostApplicationServices.WorkingDatabase = prev; }
 
                     try { db.SaveAs(dwgPath, db.OriginalFileVersion); }
-                    catch (System.Exception ex) { warn = "Doi ten OK nhung luu DWG loi: " + ex.Message; return false; }
+                    catch (System.Exception ex) { warn = "Đổi tên OK nhưng lưu DWG lỗi: " + ex.Message; return false; }
                 }
                 return true;
             }

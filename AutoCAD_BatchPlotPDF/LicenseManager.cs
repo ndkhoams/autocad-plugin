@@ -95,7 +95,7 @@ namespace CADtools
                     if (!string.Equals(fp, p.Machine, StringComparison.OrdinalIgnoreCase))
                     {
                         _ok = false;
-                        _status = "Key không dành cho máy này";
+                        _status = "Key không dành cho máy này.";
                         return;
                     }
                 }
@@ -138,7 +138,7 @@ namespace CADtools
                     rsa.FromXmlString(xml);
                     if (!rsa.VerifyData(data, "SHA256", sig))
                     {
-                        err = "Chữ ky không hợp lệ (key giả hoặc bi sửa).";
+                        err = "Chữ ký không hợp lệ (key giả hoặc bị sửa).";
                         return false;
                     }
                 }
@@ -152,7 +152,7 @@ namespace CADtools
                 payload.Expiry = dt;
                 return true;
             }
-            catch (Exception ex) { err = "Lỗi dọc key: " + ex.Message; return false; }
+            catch (Exception ex) { err = "Lỗi đọc key: " + ex.Message; return false; }
         }
 
         // Ma may on dinh: SHA256(MachineGuid + ten may), lay 16 ky tu hex.

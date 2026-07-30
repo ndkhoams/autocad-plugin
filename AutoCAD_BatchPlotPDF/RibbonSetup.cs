@@ -40,10 +40,10 @@ namespace CADtools
             foreach (RibbonTab t in ribbon.Tabs)
                 if (t.Id == TabId) return;
 
-            RibbonTab tab = new RibbonTab { Title = "SHEET PRINTER", Id = TabId };
+            RibbonTab tab = new RibbonTab { Title = "Sheet Printer", Id = TabId };
             ribbon.Tabs.Add(tab);
 
-            RibbonPanelSource src = new RibbonPanelSource { Title = "SSP" };
+            RibbonPanelSource src = new RibbonPanelSource { Title = "Sheet Printer" };
             tab.Panels.Add(new RibbonPanel { Source = src });
 
             src.Items.Add(MakeButton("SSP", "Sheet Set Manager \n and Printer", "SSP ",

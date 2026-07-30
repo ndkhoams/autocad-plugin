@@ -48,7 +48,7 @@ namespace CADtools
             MessageBox.Show(
                 "Mã máy (fingerprint) của bạn:\n\n" + fp
                     + (copied ? "\n\n(Đã tự động copy vào clipboard)" : "")
-                    + "\n\nGửi mã này cho người cấp key.",
+                    + "\n\nGửi mã này cho người cấp key. KhoaND13@hotmail.com - Zalo: 090.450.4193",
                 "DEVICE CODE",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
         }

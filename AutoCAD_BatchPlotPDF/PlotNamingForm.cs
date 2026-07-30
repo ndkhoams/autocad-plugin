@@ -65,7 +65,7 @@ namespace CADtools
             .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
-            Text = "Sheet Set Manager and Printer - Build260729 ©KhoaND";
+            Text = "Sheet Set Manager and Printer - Build_260729 - KhoaND13@hotmail.com";
             ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
             MinimumSize = new Size(1000, 640);

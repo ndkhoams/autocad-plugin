@@ -18,12 +18,12 @@ namespace CADtools
     // Gom toàn bộ "magic values" về một chỗ: đổi 1 nơi, tránh gõ sai tag ATT.
     internal static class SbpConstants
     {
-        public const string DefaultFramePrefix = "KHUNG_MT";
+        public const string DefaultFramePrefix = "KHUNG";
 
         // Tag thuộc tính (ATTRIBUTE) trên block khung tên
-        public const string AttrKyHieu = "MT_KH";
-        public const string AttrHangMuc = "MT_TENHANGMUC";
-        public const string AttrTenBanVe = "MT_TENBANVE";
+        public const string AttrKyHieu = "KYHIEU";
+        public const string AttrHangMuc = "TENHANGMUC";
+        public const string AttrTenBanVe = "TENBANVE";
 
         // Cấu hình plot
         public const string PdfPlotter = "DWG To PDF.pc3";
@@ -63,9 +63,9 @@ namespace CADtools
         {
             public int Stt { get; set; } = 0;
             public string LayoutName { get; set; } = ""; // "Model" hoặc tên layout
-            public string KyHieu { get; set; } = "";     // MT_KH
-            public string HangMuc { get; set; } = "";     // MT_TENHANGMUC
-            public string TenBanVe { get; set; } = "";    // MT_TENBANVE
+            public string KyHieu { get; set; } = "";     // KYHIEU
+            public string HangMuc { get; set; } = "";     // TENHANGMUC
+            public string TenBanVe { get; set; } = "";    // TENBANVE
             public string PdfName { get; set; } = "";     // tên file PDF sẽ xuất
             public string Handle { get; set; } = "";
 
@@ -183,7 +183,7 @@ namespace CADtools
                 string tenBanVe = GetAttr(map, SbpConstants.AttrTenBanVe);
 
                 string pdfBase = (kyHieu + "_" + tenBanVe).Trim('_').Trim();
-                if (string.IsNullOrWhiteSpace(pdfBase)) pdfBase = "KHUNG_MT_" + br.Handle.ToString();
+                if (string.IsNullOrWhiteSpace(pdfBase)) pdfBase = "DRAWING_" + br.Handle.ToString();
 
                 items.Add(new BlockItem
                 {
