@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Reflection;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.Windows;
@@ -12,9 +14,16 @@ namespace CADtools
     public class RibbonSetup : IExtensionApplication
     {
         private const string TabId = "CADTOOLS_TAB";
+        private static bool _dependencyResolverRegistered;
 
         public void Initialize()
         {
+            if (!_dependencyResolverRegistered)
+            {
+                AppDomain.CurrentDomain.AssemblyResolve += ResolvePluginDependency;
+                _dependencyResolverRegistered = true;
+            }
+
             // Luc NETLOAD, Ribbon co the CHUA khoi tao -> cho su kien ItemInitialized.
             if (ComponentManager.Ribbon != null)
                 BuildRibbon();
@@ -23,6 +32,21 @@ namespace CADtools
         }
 
         public void Terminate() { }
+
+        private static Assembly ResolvePluginDependency(object sender, ResolveEventArgs args)
+        {
+            try
+            {
+                string assemblyFile = new AssemblyName(args.Name).Name + ".dll";
+                string pluginDirectory = Path.GetDirectoryName(typeof(RibbonSetup).Assembly.Location);
+                string dependencyPath = Path.Combine(pluginDirectory, assemblyFile);
+                return File.Exists(dependencyPath) ? Assembly.LoadFrom(dependencyPath) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         private void OnItemInitialized(object sender, RibbonItemEventArgs e)
         {

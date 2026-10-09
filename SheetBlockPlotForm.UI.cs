@@ -11,6 +11,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
 using Exception = System.Exception; // tránh nhầm với Autodesk.AutoCAD.Runtime.Exception
 
 namespace CADtools
@@ -27,6 +29,8 @@ namespace CADtools
         private Button _btnFilterWindow;
         private Button _btnBrowseOut;
         private TextBox _txtOutDir;
+        private CheckBox _chkCombinePdf;
+        private TextBox _txtCombinedPdfName;
         private ComboBox _cbPaper;
         private ComboBox _cbStyle;
         // Fit luôn bật -> bỏ checkbox khỏi UI
@@ -34,6 +38,8 @@ namespace CADtools
         private Button _btnPrint;
         private Button _btnClose;
         private Label _lblSelInfo;
+        private Label _printStatus;
+        private ProgressBar _printProgress;
 
         private Button _btnSelAll;
         private Button _btnSelNone;
@@ -118,6 +124,18 @@ namespace CADtools
             Controls.Add(new Label { Left = 10, Top = y + 4, Width = 140, Height = 24, Text = "Output folder:", TextAlign = ContentAlignment.MiddleLeft });
             _txtOutDir = new TextBox { Left = 150, Top = y, Width = 670, Height = 28, Text = DefaultOutDir() };
             Controls.Add(_txtOutDir);
+            _chkCombinePdf = new CheckBox
+            {
+                Text = "Gộp thành 1 PDF:",
+                AutoSize = true,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            _txtCombinedPdfName = new TextBox
+            {
+                Text = "SBP_Combined.pdf",
+                Enabled = false
+            };
+            _chkCombinePdf.CheckedChanged += (s, e) => _txtCombinedPdfName.Enabled = _chkCombinePdf.Checked;
             _btnBrowseOut = new Button { Left = 830, Top = y, Width = 40, Height = 28, Text = "..." };
             _btnBrowseOut.Click += (s, e) =>
             {
@@ -282,6 +300,9 @@ namespace CADtools
             _lblSelInfo = new Label { Left = 360, Top = ClientSize.Height - 44, Width = 260, Height = 32, Text = "", Anchor = AnchorStyles.Left | AnchorStyles.Bottom, TextAlign = ContentAlignment.MiddleLeft };
             Controls.Add(_lblSelInfo);
 
+            _printStatus = new Label { Text = "Sẵn sàng", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+            _printProgress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Value = 0, Style = ProgressBarStyle.Continuous };
+
             _btnPrint = new Button { Left = ClientSize.Width - 240, Top = ClientSize.Height - 44, Width = 110, Height = 32, Text = "In PDF", Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
             _btnPrint.Click += (s, e) => PrintSelected();
             Controls.Add(_btnPrint);
@@ -306,14 +327,15 @@ namespace CADtools
                 Dock = DockStyle.Fill,
                 Padding = new Padding(14, 4, 14, 0),
                 ColumnCount = 1,
-                RowCount = 3,
+                RowCount = 4,
                 BackColor = BackColor
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
 
-            var setup = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 2, Padding = new Padding(0, 2, 0, 0) };
+            var setup = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 3, Padding = new Padding(0, 2, 0, 0) };
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
@@ -321,6 +343,7 @@ namespace CADtools
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
+            setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             AddSetupLabel(setup, "Khung tên", 0, 0);
@@ -343,6 +366,19 @@ namespace CADtools
             AddSetupLabel(setup, "Nét in", 3, 1);
             setup.SetColumnSpan(_cbStyle, 3);
             Put(setup, _cbStyle, 4, 1);
+            var combineRow = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 1, 7, 1) };
+            _chkCombinePdf.Dock = DockStyle.None;
+            _chkCombinePdf.Location = new Point(0, 5);
+            combineRow.Controls.Add(_chkCombinePdf);
+            _txtCombinedPdfName.Dock = DockStyle.None;
+            _txtCombinedPdfName.Left = 190;
+            _txtCombinedPdfName.Top = 3;
+            _txtCombinedPdfName.Height = 26;
+            _txtCombinedPdfName.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            combineRow.Controls.Add(_txtCombinedPdfName);
+            combineRow.Resize += (s, e) => _txtCombinedPdfName.Width = Math.Max(100, combineRow.ClientSize.Width - _txtCombinedPdfName.Left);
+            setup.Controls.Add(combineRow, 0, 2);
+            setup.SetColumnSpan(combineRow, 7);
             root.Controls.Add(setup, 0, 0);
 
             _grid.Dock = DockStyle.Fill;
@@ -360,6 +396,19 @@ namespace CADtools
             };
             root.Controls.Add(_grid, 0, 1);
 
+            var progressRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(0, 2, 0, 2)
+            };
+            progressRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
+            progressRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            progressRow.Controls.Add(_printStatus, 0, 0);
+            progressRow.Controls.Add(_printProgress, 1, 0);
+            root.Controls.Add(progressRow, 0, 2);
+
             var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 6, RowCount = 1, Padding = new Padding(0) };
             footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
@@ -376,7 +425,7 @@ namespace CADtools
             footer.Controls.Add(_lblSelInfo, 3, 0);
             PutButton(footer, _btnPrint, 4, 0, 96);
             PutButton(footer, _btnClose, 5, 0, 96);
-            root.Controls.Add(footer, 0, 2);
+            root.Controls.Add(footer, 0, 3);
             Controls.Add(root);
         }
 
@@ -847,26 +896,124 @@ namespace CADtools
                 return;
             }
 
-            int ok = 0, fail = 0;
-
-            foreach (var it in selected)
+            if (_chkCombinePdf.Checked)
             {
-                string pdf = Path.Combine(outDir, SheetBlockPlotLogic.SanitizeFileName(it.PdfName));
+                string requestedName = (_txtCombinedPdfName.Text ?? "").Trim();
+                string baseName = Path.GetFileNameWithoutExtension(requestedName);
+                if (string.IsNullOrWhiteSpace(baseName)) baseName = "SBP_Combined";
+                string combinedPdf = Path.Combine(outDir,
+                    SheetBlockPlotLogic.SanitizeFileName(baseName) + ".pdf");
+                string temporaryPdf = Path.Combine(outDir,
+                    Path.GetFileNameWithoutExtension(combinedPdf) + "_" + Guid.NewGuid().ToString("N") + ".pdf");
+                string temporaryDirectory = Path.Combine(Path.GetTempPath(), "CADtools_SBP_" + Guid.NewGuid().ToString("N"));
+                _btnPrint.Enabled = false;
+                _btnClose.Enabled = false;
+                SetPrintProgress(0, "Chuẩn bị gộp " + selected.Count + " bản vẽ...");
+
                 try
                 {
-                    _logic.PlotWindowToPdf(it.LayoutName, it.Window, it.RectLandscape, pdf, paper, styleSheet, fit);
-                    ok++;
-                    try { _ed.WriteMessage("\n[OK] " + Path.GetFileName(pdf)); } catch { }
+                    Directory.CreateDirectory(temporaryDirectory);
+                    var individualPdfs = new List<string>();
+                    for (int index = 0; index < selected.Count; index++)
+                    {
+                        var item = selected[index];
+                        string pagePdf = Path.Combine(temporaryDirectory, (index + 1).ToString("D4") + ".pdf");
+                        SetPrintProgress(index * 90 / selected.Count,
+                            "Đang in trang " + (index + 1) + "/" + selected.Count + ": " + item.PdfName);
+                        _logic.PlotWindowToPdf(item.LayoutName, item.Window, item.RectLandscape,
+                            pagePdf, paper, styleSheet, fit);
+                        individualPdfs.Add(pagePdf);
+                        SetPrintProgress((index + 1) * 90 / selected.Count,
+                            "Đã in " + (index + 1) + "/" + selected.Count + " trang.");
+                    }
+
+                    SetPrintProgress(94, "Đang ghép " + selected.Count + " trang PDF...");
+                    using (var mergedDocument = new PdfDocument())
+                    {
+                        foreach (string pagePdf in individualPdfs)
+                        {
+                            using (PdfDocument source = PdfReader.Open(pagePdf, PdfDocumentOpenMode.Import))
+                            {
+                                foreach (PdfPage page in source.Pages)
+                                    mergedDocument.AddPage(page);
+                            }
+                        }
+                        if (mergedDocument.PageCount == 0)
+                            throw new InvalidDataException("Không có trang PDF hợp lệ để gộp.");
+                        mergedDocument.Save(temporaryPdf);
+                    }
+
+                    if (File.Exists(combinedPdf)) File.Replace(temporaryPdf, combinedPdf, null);
+                    else File.Move(temporaryPdf, combinedPdf);
+                    SetPrintProgress(100, "Hoàn tất: " + Path.GetFileName(combinedPdf));
+                    try { _ed.WriteMessage("\n[OK] PDF gộp " + Path.GetFileName(combinedPdf) + " - " + selected.Count + " trang"); } catch { }
+                    MessageBox.Show(this,
+                        "Đã gộp " + selected.Count + " bản vẽ vào một file PDF:\n" + combinedPdf,
+                        "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch (System.Exception ex)
                 {
-                    fail++;
-                    try { _ed.WriteMessage("\n[LỖI] " + it.Handle + ": " + ex.Message); } catch { }
+                    SetPrintProgress(_printProgress.Value, "Lỗi khi in/gộp PDF: " + ex.Message);
+                    try { if (File.Exists(temporaryPdf)) File.Delete(temporaryPdf); } catch { }
+                    try { _ed.WriteMessage("\n[LỖI PDF gộp] " + ex.Message); } catch { }
+                    MessageBox.Show(this, "Không thể tạo PDF gộp:\n" + ex.Message,
+                        "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
+                finally
+                {
+                    try { if (File.Exists(temporaryPdf)) File.Delete(temporaryPdf); } catch { }
+                    try { if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, true); } catch { }
+                    _btnPrint.Enabled = true;
+                    _btnClose.Enabled = true;
+                }
+                return;
             }
 
-            MessageBox.Show(this, "Hoàn thành.\nIn thành công: " + ok + "\nIn lỗi: " + fail, "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            int ok = 0, fail = 0;
+            _btnPrint.Enabled = false;
+            _btnClose.Enabled = false;
+            SetPrintProgress(0, "Bắt đầu in " + selected.Count + " PDF...");
+            try
+            {
+                for (int index = 0; index < selected.Count; index++)
+                {
+                    var item = selected[index];
+                    string pdf = Path.Combine(outDir, SheetBlockPlotLogic.SanitizeFileName(item.PdfName));
+                    SetPrintProgress(index * 100 / selected.Count,
+                        "Đang in " + (index + 1) + "/" + selected.Count + ": " + item.PdfName);
+                    try
+                    {
+                        _logic.PlotWindowToPdf(item.LayoutName, item.Window, item.RectLandscape, pdf, paper, styleSheet, fit);
+                        ok++;
+                        try { _ed.WriteMessage("\n[OK] " + Path.GetFileName(pdf)); } catch { }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        fail++;
+                        try { _ed.WriteMessage("\n[LỖI] " + item.Handle + ": " + ex.Message); } catch { }
+                    }
+                    SetPrintProgress((index + 1) * 100 / selected.Count,
+                        "Đã xử lý " + (index + 1) + "/" + selected.Count + " | Thành công: " + ok + " | Lỗi: " + fail);
+                }
+
+                SetPrintProgress(100, "Hoàn tất | Thành công: " + ok + " | Lỗi: " + fail);
+                MessageBox.Show(this, "Hoàn thành.\nIn thành công: " + ok + "\nIn lỗi: " + fail, "Sheet Block Manager and Printer", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            finally
+            {
+                _btnPrint.Enabled = true;
+                _btnClose.Enabled = true;
+            }
             return;
+        }
+
+        private void SetPrintProgress(int percent, string status)
+        {
+            if (_printProgress == null || _printStatus == null || IsDisposed) return;
+            _printProgress.Value = Math.Max(_printProgress.Minimum, Math.Min(_printProgress.Maximum, percent));
+            _printStatus.Text = status ?? "";
+            _printStatus.Refresh();
+            _printProgress.Refresh();
         }
 
         // Nút "Chọn khung": ẩn form, cho người dùng pick 1 block khung tên HOẶC External Reference (xref),

@@ -76,6 +76,13 @@ namespace CADtools
             public bool RectLandscape { get; set; } = true;
         }
 
+        public sealed class PlotRequest
+        {
+            public string LayoutName { get; set; }
+            public Extents2d Window { get; set; }
+            public bool RectLandscape { get; set; }
+        }
+
         // ============================================================
         // 1) QUÉT BLOCK
         // ============================================================
@@ -603,113 +610,273 @@ namespace CADtools
             if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
                 throw new InvalidOperationException("Plot is busy");
 
+            using (_doc.LockDocument())
+            {
+                Database db = _doc.Database;
+                LayoutManager lm = LayoutManager.Current;
+                bool oldTileMode = db.TileMode;
+                string oldLayout = lm.CurrentLayout;
+
+                try
+                {
+                    bool isModel = string.Equals(layoutName, "Model", StringComparison.OrdinalIgnoreCase);
+                    try { if (!string.IsNullOrWhiteSpace(layoutName)) lm.CurrentLayout = layoutName; } catch { }
+
+                    using (Transaction tr = db.TransactionManager.StartTransaction())
+                    {
+                        ObjectId layoutId = isModel ? lm.GetLayoutId("Model") : lm.GetLayoutId(lm.CurrentLayout);
+                        Layout layout = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
+                        using (var settings = new PlotSettings(layout.ModelType))
+                        {
+                            settings.CopyFrom(layout);
+                            PlotSettingsValidator validator = PlotSettingsValidator.Current;
+                            ConfigurePlotSettings(validator, settings, paperMedia, styleSheet);
+                            SafeSet("SetPlotPaperUnits", () => validator.SetPlotPaperUnits(settings, PlotPaperUnit.Millimeters));
+                            try { validator.SetPlotOrigin(settings, new Point2d(0, 0)); } catch { }
+                            try { db.TileMode = isModel; } catch { }
+                            try { validator.SetPlotRotation(settings, ResolvePlotRotation(paperMedia, rectLandscape)); } catch { }
+
+                            Extents2d normalizedWindow = NormalizePlotWindow(win, isModel);
+                            string temporaryViewName = null;
+                            if (isModel)
+                            {
+                                temporaryViewName = CreateTemporaryPlotView(db, tr, normalizedWindow);
+                                SafeSet("SetPlotViewName", () => validator.SetPlotViewName(settings, temporaryViewName));
+                                SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.View));
+                            }
+                            else
+                            {
+                                SafeSet("SetPlotWindowArea", () => validator.SetPlotWindowArea(settings, normalizedWindow));
+                                SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
+                            }
+
+                            try { validator.SetPlotCentered(settings, true); } catch { }
+                            SafeSet("SetUseStandardScale", () => validator.SetUseStandardScale(settings, true));
+                            SafeSet("SetStdScaleType", () => validator.SetStdScaleType(settings, StdScaleType.ScaleToFit));
+
+                            var plotInfo = new PlotInfo { Layout = layoutId, OverrideSettings = settings };
+                            new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled }.Validate(plotInfo);
+                            ExecutePlot(plotInfo, pdfFile);
+                            if (!string.IsNullOrWhiteSpace(temporaryViewName))
+                                RemoveTemporaryPlotView(db, tr, temporaryViewName);
+                            tr.Commit();
+                        }
+                    }
+                }
+                finally
+                {
+                    try { db.TileMode = oldTileMode; } catch { }
+                    try { lm.CurrentLayout = oldLayout; } catch { }
+                }
+            }
+        }
+
+        private void ExecutePlot(PlotInfo plotInfo, string pdfFile)
+        {
+            using (PlotEngine engine = PlotFactory.CreatePublishEngine())
+            using (PlotProgressDialog progress = new PlotProgressDialog(false, 1, true))
+            {
+                bool plotBegun = false, documentBegun = false, pageBegun = false;
+                progress.OnBeginPlot();
+                progress.IsVisible = false;
+                try
+                {
+                    engine.BeginPlot(progress, null);
+                    plotBegun = true;
+                    engine.BeginDocument(plotInfo, _doc.Name, null, 1, true, pdfFile);
+                    documentBegun = true;
+                    engine.BeginPage(new PlotPageInfo(), plotInfo, true, null);
+                    pageBegun = true;
+                    engine.BeginGenerateGraphics(null);
+                    engine.EndGenerateGraphics(null);
+                }
+                finally
+                {
+                    try { if (pageBegun) engine.EndPage(null); } catch { }
+                    try { if (documentBegun) engine.EndDocument(null); } catch { }
+                    try { if (plotBegun) engine.EndPlot(null); } catch { }
+                    try { progress.OnEndPlot(); } catch { }
+                }
+            }
+        }
+
+        public void PlotWindowsToPdf(IList<PlotRequest> requests, string pdfFile, string paperMedia, string styleSheet, bool fit)
+        {
+            if (requests == null || requests.Count == 0)
+                throw new ArgumentException("Không có trang nào để plot.", "requests");
+            if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
+                throw new InvalidOperationException("Plot is busy");
+
             // NOTE: thao tác Plot cần lock Document để tránh eInvalidInput do context thay đổi.
             using (_doc.LockDocument())
             {
                 Database db = _doc.Database;
                 LayoutManager lm = LayoutManager.Current;
 
-                bool isModel = !string.IsNullOrWhiteSpace(layoutName) &&
-                               string.Equals(layoutName, "Model", StringComparison.OrdinalIgnoreCase);
-
-                Log("[SBP-DIAG] >> begin plot layout=" + (layoutName ?? "") + " isModel=" + isModel
-                    + " rawWin=[" + F(win.MinPoint.X) + "," + F(win.MinPoint.Y) + "]-[" + F(win.MaxPoint.X) + "," + F(win.MaxPoint.Y) + "] pdf=" + (pdfFile ?? ""));
-
                 // Lưu state global để KHÔI PHỤC sau khi in (tránh ảnh hưởng khung sau / thao tác của user).
                 bool oldTileMode = db.TileMode;
                 string oldLayout = lm.CurrentLayout;
+                PlotEngine engine = null;
+                PlotProgressDialog progress = null;
+                bool plotBegun = false;
+                bool documentBegun = false;
+                bool pageBegun = false;
+                int pageCount = requests.Count(request => request != null);
+                if (pageCount == 0)
+                    throw new ArgumentException("Không có trang nào để plot.", "requests");
 
                 try
                 {
-                    // Switch đúng layout TRƯỚC khi start Transaction (tránh eLayoutNotCurrent).
-                    try { if (!string.IsNullOrWhiteSpace(layoutName)) lm.CurrentLayout = layoutName; } catch { }
+                    engine = PlotFactory.CreatePublishEngine();
+                    progress = new PlotProgressDialog(false, pageCount, true);
+                    progress.OnBeginPlot();
+                    progress.IsVisible = false;
+                    engine.BeginPlot(progress, null);
+                    plotBegun = true;
 
-                    using (Transaction tr = db.TransactionManager.StartTransaction())
+                    int pageIndex = 0;
+                    foreach (PlotRequest request in requests)
                     {
-                        ObjectId layoutId;
-                        try
+                        if (request == null) continue;
+                        string layoutName = request.LayoutName;
+                        bool isModel = !string.IsNullOrWhiteSpace(layoutName) &&
+                                       string.Equals(layoutName, "Model", StringComparison.OrdinalIgnoreCase);
+
+                        Log("[SBP-DIAG] >> prepare plot layout=" + (layoutName ?? "") + " isModel=" + isModel
+                            + " rawWin=[" + F(request.Window.MinPoint.X) + "," + F(request.Window.MinPoint.Y) + "]-["
+                            + F(request.Window.MaxPoint.X) + "," + F(request.Window.MaxPoint.Y) + "] pdf=" + (pdfFile ?? ""));
+
+                        // Switch đúng layout TRƯỚC khi start Transaction (tránh eLayoutNotCurrent).
+                        try { if (!string.IsNullOrWhiteSpace(layoutName)) lm.CurrentLayout = layoutName; } catch { }
+
+                        using (Transaction tr = db.TransactionManager.StartTransaction())
                         {
-                            layoutId = isModel ? lm.GetLayoutId("Model") : lm.GetLayoutId(lm.CurrentLayout);
+                            ObjectId layoutId;
+                            try
+                            {
+                                layoutId = isModel ? lm.GetLayoutId("Model") : lm.GetLayoutId(lm.CurrentLayout);
+                            }
+                            catch { layoutId = lm.GetLayoutId(lm.CurrentLayout); }
+
+                            Layout lo = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
+                            using (var ps = new PlotSettings(lo.ModelType))
+                            {
+                                try { ps.CopyFrom(lo); }
+                                catch (AcException cex) { Log("[SBP-SET-ERR] step=CopyFrom status=" + cex.ErrorStatus); throw; }
+                                PlotSettingsValidator psv = PlotSettingsValidator.Current;
+
+                                ConfigurePlotSettings(psv, ps, paperMedia, styleSheet);
+
+                                // PC3/media có thể reset plot type hoặc đơn vị sau khi cấu hình.
+                                // Ép lại các giá trị nền trước khi áp dụng window thực tế.
+                                SafeSet("SetPlotPaperUnits", () => psv.SetPlotPaperUnits(ps, PlotPaperUnit.Millimeters));
+                                try { psv.SetPlotOrigin(ps, new Point2d(0, 0)); } catch { }
+
+                                // Model cần TileMode=true; Layout cần TileMode=false.
+                                try { db.TileMode = isModel; } catch { }
+
+                                // Auto-rotate giấy theo hướng khung.
+                                try { psv.SetPlotRotation(ps, ResolvePlotRotation(paperMedia, request.RectLandscape)); } catch { }
+
+                                Extents2d win2 = NormalizePlotWindow(request.Window, isModel);
+
+                                // [DIAG] Ghi lại window để soi nguyên nhân eInvalidInput (in ra cả khi thành công).
+                                Log("[SBP-DIAG] layout=" + (layoutName ?? "") + " isModel=" + isModel
+                                    + " win=[" + F(request.Window.MinPoint.X) + "," + F(request.Window.MinPoint.Y) + "]-["
+                                    + F(request.Window.MaxPoint.X) + "," + F(request.Window.MaxPoint.Y) + "]"
+                                    + " win2=[" + F(win2.MinPoint.X) + "," + F(win2.MinPoint.Y) + "]-["
+                                    + F(win2.MaxPoint.X) + "," + F(win2.MaxPoint.Y) + "]"
+                                    + " w=" + F(win2.MaxPoint.X - win2.MinPoint.X) + " h=" + F(win2.MaxPoint.Y - win2.MinPoint.Y));
+
+                                if (isModel)
+                                {
+                                    string temporaryViewName = CreateTemporaryPlotView(db, tr, win2);
+                                    SafeSet("SetPlotViewName", () => psv.SetPlotViewName(ps, temporaryViewName));
+                                    SafeSet("SetPlotType", () => psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.View));
+                                    PlotInfo pi = CreateValidatedPlotInfo(layoutId, ps, lm.CurrentLayout, win2);
+                                    PlotDocumentPage(engine, pi, pdfFile, pageIndex, pageCount, ref documentBegun, ref pageBegun);
+                                    pageIndex++;
+                                    RemoveTemporaryPlotView(db, tr, temporaryViewName);
+                                }
+                                else
+                                {
+                                    SafeSet("SetPlotWindowArea", () => psv.SetPlotWindowArea(ps, win2));
+                                    SafeSet("SetPlotType", () => psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
+                                    PlotInfo pi = CreateValidatedPlotInfo(layoutId, ps, lm.CurrentLayout, win2);
+                                    PlotDocumentPage(engine, pi, pdfFile, pageIndex, pageCount, ref documentBegun, ref pageBegun);
+                                    pageIndex++;
+                                }
+                                tr.Commit();
+                            }
                         }
-                        catch { layoutId = lm.GetLayoutId(lm.CurrentLayout); }
-
-                        Layout lo = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
-
-                        using (PlotSettings ps = new PlotSettings(lo.ModelType))
-                        {
-                            try { ps.CopyFrom(lo); }
-                            catch (AcException cex) { Log("[SBP-SET-ERR] step=CopyFrom status=" + cex.ErrorStatus); throw; }
-                            PlotSettingsValidator psv = PlotSettingsValidator.Current;
-
-                            ConfigurePlotSettings(psv, ps, paperMedia, styleSheet);
-
-                            // PC3/media có thể reset plot type hoặc đơn vị sau khi cấu hình.
-                            // Ép lại các giá trị nền trước khi áp dụng window thực tế.
-                            SafeSet("SetPlotPaperUnits", () => psv.SetPlotPaperUnits(ps, PlotPaperUnit.Millimeters));
-                            try { psv.SetPlotOrigin(ps, new Point2d(0, 0)); } catch { }
-
-                            // Model cần TileMode=true; Layout cần TileMode=false.
-                            try { db.TileMode = isModel; } catch { }
-
-                            // Auto-rotate giấy theo hướng khung.
-                            try { psv.SetPlotRotation(ps, ResolvePlotRotation(paperMedia, rectLandscape)); } catch { }
-
-                            Extents2d win2 = NormalizePlotWindow(win, isModel);
-
-                            // [DIAG] Ghi lại window để soi nguyên nhân eInvalidInput (in ra cả khi thành công).
-                            Log("[SBP-DIAG] layout=" + (layoutName ?? "") + " isModel=" + isModel
-                                + " win=[" + F(win.MinPoint.X) + "," + F(win.MinPoint.Y) + "]-[" + F(win.MaxPoint.X) + "," + F(win.MaxPoint.Y) + "]"
-                                + " win2=[" + F(win2.MinPoint.X) + "," + F(win2.MinPoint.Y) + "]-[" + F(win2.MaxPoint.X) + "," + F(win2.MaxPoint.Y) + "]"
-                                + " w=" + F(win2.MaxPoint.X - win2.MinPoint.X) + " h=" + F(win2.MaxPoint.Y - win2.MinPoint.Y));
-
-                            string temporaryViewName = null;
-                            if (isModel)
-                            {
-                                temporaryViewName = CreateTemporaryPlotView(db, tr, win2);
-                                SafeSet("SetPlotViewName", () => psv.SetPlotViewName(ps, temporaryViewName));
-                                SafeSet("SetPlotType", () => psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.View));
-                            }
-                            else
-                            {
-                                SafeSet("SetPlotWindowArea", () => psv.SetPlotWindowArea(ps, win2));
-                                SafeSet("SetPlotType", () => psv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
-                            }
-
-                            // In tay có tick "Center the plot".
-                            try { psv.SetPlotCentered(ps, true); } catch { }
-                            SafeSet("SetUseStandardScale", () => psv.SetUseStandardScale(ps, true));
-                            SafeSet("SetStdScaleType", () => psv.SetStdScaleType(ps, StdScaleType.ScaleToFit));
-
-                            PlotInfo pi = new PlotInfo { Layout = layoutId, OverrideSettings = ps };
-
-                            // Cho AutoCAD chọn media tương thích với PC3; sau Validate sẽ
-                            // áp dụng lại window vì bước rematch có thể reset PlotType.
-                            var piv = new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled };
-                            try { piv.Validate(pi); }
-                            catch (AcException vex)
-                            {
-                                Log("[SBP-VALIDATE-ERR] layout=" + (lm.CurrentLayout ?? "")
-                                    + " status=" + vex.ErrorStatus
-                                    + " win=[" + win2.MinPoint.X + "," + win2.MinPoint.Y + "]-["
-                                    + win2.MaxPoint.X + "," + win2.MaxPoint.Y + "]");
-                                throw;
-                            }
-
-                            try { Log("[SBP-DIAG] PlotType after Validate=" + ps.PlotType); } catch { }
-
-                            ExecutePlot(pi, pdfFile);
-                            if (!string.IsNullOrWhiteSpace(temporaryViewName))
-                                RemoveTemporaryPlotView(db, tr, temporaryViewName);
-                        }
-                        tr.Commit();
                     }
+
+                    if (pageIndex == 0)
+                        throw new InvalidOperationException("Không có trang hợp lệ để gộp PDF.");
                 }
                 finally
                 {
+                    try { if (pageBegun) engine.EndPage(null); } catch { }
+                    try { if (documentBegun) engine.EndDocument(null); } catch { }
+                    try { if (plotBegun) engine.EndPlot(null); } catch { }
+                    try { if (progress != null) progress.OnEndPlot(); } catch { }
+                    try { if (progress != null) progress.Dispose(); } catch { }
+                    try { if (engine != null) engine.Dispose(); } catch { }
+
                     // Luôn khôi phục, kể cả khi lỗi giữa chừng.
                     try { db.TileMode = oldTileMode; } catch { }
                     try { lm.CurrentLayout = oldLayout; } catch { }
                 }
+            }
+        }
+
+        private PlotInfo CreateValidatedPlotInfo(ObjectId layoutId, PlotSettings settings, string layoutName, Extents2d window)
+        {
+            try { PlotSettingsValidator.Current.SetPlotCentered(settings, true); } catch { }
+            SafeSet("SetUseStandardScale", () => PlotSettingsValidator.Current.SetUseStandardScale(settings, true));
+            SafeSet("SetStdScaleType", () => PlotSettingsValidator.Current.SetStdScaleType(settings, StdScaleType.ScaleToFit));
+
+            var pi = new PlotInfo { Layout = layoutId, OverrideSettings = settings };
+            var validator = new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled };
+            try { validator.Validate(pi); }
+            catch (AcException ex)
+            {
+                Log("[SBP-VALIDATE-ERR] layout=" + (layoutName ?? "")
+                    + " status=" + ex.ErrorStatus
+                    + " win=[" + window.MinPoint.X + "," + window.MinPoint.Y + "]-["
+                    + window.MaxPoint.X + "," + window.MaxPoint.Y + "]");
+                throw;
+            }
+            return pi;
+        }
+
+        private void PlotDocumentPage(PlotEngine engine, PlotInfo info, string pdfFile, int pageIndex,
+            int pageCount, ref bool documentBegun, ref bool pageBegun)
+        {
+            string stage = "BeginDocument";
+            try
+            {
+                if (!documentBegun)
+                {
+                    engine.BeginDocument(info, _doc.Name, null, 1, true, pdfFile);
+                    documentBegun = true;
+                }
+
+                stage = "BeginPage";
+                var pageInfo = new PlotPageInfo();
+                engine.BeginPage(pageInfo, info, pageIndex == pageCount - 1, null);
+                pageBegun = true;
+                stage = "BeginGenerateGraphics";
+                engine.BeginGenerateGraphics(null);
+                engine.EndGenerateGraphics(null);
+                engine.EndPage(null);
+                pageBegun = false;
+            }
+            catch (AcException ex)
+            {
+                Log("[SBP-PLOT-ERR] stage=" + stage + " page=" + (pageIndex + 1) + "/" + pageCount
+                    + " status=" + ex.ErrorStatus + " file=" + pdfFile);
+                throw;
             }
         }
 
@@ -825,47 +992,6 @@ namespace CADtools
                     new Point2d(win2.MaxPoint.X - shrink, win2.MaxPoint.Y - shrink));
             }
             return win2;
-        }
-
-        // Vòng đời PlotEngine với teardown ĐẢM BẢO (tránh AutoCAD kẹt ở trạng thái plotting).
-        private void ExecutePlot(PlotInfo pi, string pdfFile)
-        {
-            using (PlotEngine pe = PlotFactory.CreatePublishEngine())
-            using (PlotProgressDialog ppd = new PlotProgressDialog(false, 1, true))
-            {
-                bool plotBegun = false, docBegun = false, pageBegun = false;
-                ppd.OnBeginPlot();
-                ppd.IsVisible = false;
-
-                try
-                {
-                    pe.BeginPlot(ppd, null);
-                    plotBegun = true;
-
-                    pe.BeginDocument(pi, _doc.Name, null, 1, true, pdfFile);
-                    docBegun = true;
-
-                    PlotPageInfo ppi = new PlotPageInfo();
-                    pe.BeginPage(ppi, pi, true, null);
-                    pageBegun = true;
-
-                    pe.BeginGenerateGraphics(null);
-                    pe.EndGenerateGraphics(null);
-                }
-                catch (AcException pex)
-                {
-                    Log("[SBP-PLOT-ERR] status=" + pex.ErrorStatus + " file=" + pdfFile);
-                    throw;
-                }
-                finally
-                {
-                    // Đóng theo đúng thứ tự ngược, nuốt lỗi teardown để không che lỗi gốc.
-                    try { if (pageBegun) pe.EndPage(null); } catch { }
-                    try { if (docBegun) pe.EndDocument(null); } catch { }
-                    try { if (plotBegun) pe.EndPlot(null); } catch { }
-                    try { ppd.OnEndPlot(); } catch { }
-                }
-            }
         }
 
         // ============================================================

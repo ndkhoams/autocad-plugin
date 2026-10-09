@@ -261,7 +261,6 @@ namespace CADtools
 
                 foreach (var s in printSheets)
                 {
-
                     if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                     { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
 
