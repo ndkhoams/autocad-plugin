@@ -11,7 +11,7 @@ namespace CADtools
         {
             var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
-            //if (!LicenseManager.Ensure(doc.Editor)) return; //banquyen
+            if (!LicenseManager.Ensure(doc.Editor)) return;
 
             // MODELESS FIX: khong dung using(...) vi ShowModelessDialog tra ve ngay -> dispose som se crash.
             var f = new SheetBlockPlotForm(doc);

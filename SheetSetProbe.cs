@@ -16,6 +16,7 @@ using AcSm = ACSMCOMPONENTS25Lib;
 using AcSm = ACSMCOMPONENTS24Lib;
 #endif
 
+#if DEBUG
 [assembly: CommandClass(typeof(CADtools.SheetSetProbe))]
 
 namespace CADtools
@@ -31,9 +32,10 @@ namespace CADtools
             Editor ed = doc.Editor;
 
             var sb = new StringBuilder();
+            List<SheetInfo> sheets = null;
             try
             {
-                List<SheetInfo> sheets = SheetSetReader.ReadOpenSheetSets();
+                sheets = SheetSetReader.ReadOpenSheetSets();
                 sb.AppendLine("=== SSM PROBE ===");
                 sb.AppendLine("So sheet doc duoc: " + sheets.Count);
                 sb.AppendLine();
@@ -121,6 +123,10 @@ namespace CADtools
             catch (Exception ex)
             {
                 sb.AppendLine("LOI: " + ex);
+            }
+            finally
+            {
+                SheetSetReader.Release(sheets);
             }
 
             string path = Path.Combine(
@@ -278,3 +284,4 @@ namespace CADtools
         }
     }
 }
+#endif

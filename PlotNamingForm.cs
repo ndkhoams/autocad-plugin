@@ -470,23 +470,7 @@ namespace CADtools
             dgv.CellContentClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-
-                // Click vào +/- (cột STT) để thu gọn/bung subset
-                if (dgv.Columns[e.ColumnIndex].Name == "STT")
-                {
-                    var r = dgv.Rows[e.RowIndex];
-                    if (r != null && r.Tag is string && ((string)r.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal))
-                    {
-                        string sk = "";
-                        try { sk = ((string)r.Tag).Substring("__SUBSET__".Length); } catch { sk = ""; }
-                        bool cur = false;
-                        try { cur = _subsetCollapsed.ContainsKey(sk) && _subsetCollapsed[sk]; } catch { cur = false; }
-                        _subsetCollapsed[sk] = !cur;
-                        BuildRows();
-                        UpdateAllPreviews();
-                        return;
-                    }
-                }
+                if (e.ColumnIndex < 0) return;
 
                 if (dgv.Columns[e.ColumnIndex].Name != "DwgBrowse") return;
 
@@ -885,6 +869,7 @@ namespace CADtools
                     foreach (DataGridViewRow row in dgv.Rows)
                     {
                         if (row.IsNewRow) continue;
+                        if (row.Tag is string && ((string)row.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal)) continue;
                         var cells = new System.Collections.Generic.List<string>();
                         foreach (DataGridViewColumn c in dgv.Columns)
                         {
@@ -909,11 +894,7 @@ namespace CADtools
 
         private static string Csv(string s, string sep)
         {
-            if (s == null) s = "";
-            const string q = "\"";
-            bool needQuote = s.IndexOf(sep, StringComparison.Ordinal) >= 0 || s.Contains(q) || s.Contains("\n") || s.Contains("\r");
-            s = s.Replace(q, q + q);
-            return needQuote ? q + s + q : s;
+            return SheetBlockPlotLogic.Csv(s, sep, false);
         }
 
         private static string Str(DataGridViewRow row, string col)

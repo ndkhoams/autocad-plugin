@@ -889,9 +889,17 @@ namespace CADtools
 
         public static string Csv(string s)
         {
+            return Csv(s, ",", true);
+        }
+
+        public static string Csv(string s, string separator, bool quoteAll)
+        {
             s = s ?? "";
+            separator = string.IsNullOrEmpty(separator) ? "," : separator;
+            bool quote = quoteAll || s.IndexOf(separator, StringComparison.Ordinal) >= 0 ||
+                s.Contains("\"") || s.Contains("\n") || s.Contains("\r");
             s = s.Replace("\"", "\"\"");
-            return "\"" + s + "\"";
+            return quote ? "\"" + s + "\"" : s;
         }
 
         public static string SanitizeFileName(string s)

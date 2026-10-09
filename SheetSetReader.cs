@@ -61,6 +61,7 @@ namespace CADtools
             var result = new List<SheetInfo>();
             AcSm.AcSmSheetSetMgr mgr = null;
             AcSm.IAcSmEnumDatabase dbEnum = null;
+            bool completed = false;
 
             try
             {
@@ -72,6 +73,7 @@ namespace CADtools
                 while ((db = dbEnum.Next()) != null)
                 {
                     AcSm.IAcSmSheetSet ss = null;
+                    int sheetCountBefore = result.Count;
                     try
                     {
                         ss = db.GetSheetSet();
@@ -85,15 +87,24 @@ namespace CADtools
                     }
                     finally
                     {
-                        ComHelper.Release(ss);
-                        // Note: Don't release db here - it's still referenced in SheetInfo.DbCom
+                        if (result.Count == sheetCountBefore)
+                        {
+                            ComHelper.Release(ss);
+                            ComHelper.Release(db);
+                        }
+                        else if (!result.Exists(s => ReferenceEquals(s.OwnerCom, ss)))
+                        {
+                            ComHelper.Release(ss);
+                        }
                     }
                 }
+                completed = true;
             }
             finally
             {
                 ComHelper.Release(dbEnum);
                 ComHelper.Release(mgr);
+                if (!completed) Release(result);
             }
 
             return result;
@@ -108,6 +119,7 @@ namespace CADtools
             var result = new List<SheetInfo>();
             AcSm.AcSmDatabase db = null;
             AcSm.IAcSmSheetSet ss = null;
+            bool transferred = false;
 
             try
             {
@@ -124,14 +136,44 @@ namespace CADtools
                 // Chi doc noi dung trong DST. Khong mo tung DWG de resolve layout khi load,
                 // vi viec do lam cham dang ke voi sheet set co hang tram sheet.
                 CollectSheets(ss, db, ssName, ssCustom, result, "", null);
+                transferred = result.Count > 0;
+                if (transferred && !result.Exists(s => ReferenceEquals(s.OwnerCom, ss)))
+                    ComHelper.Release(ss);
+                return result;
             }
             finally
             {
-                ComHelper.Release(ss);
-                // Note: Don't release db here - it's still referenced in SheetInfo.DbCom
+                if (!transferred)
+                {
+                    bool sheetSetOwned = result.Exists(s => ReferenceEquals(s.OwnerCom, ss));
+                    bool databaseOwned = result.Exists(s => ReferenceEquals(s.DbCom, db));
+                    Release(result);
+                    if (!sheetSetOwned) ComHelper.Release(ss);
+                    if (!databaseOwned) ComHelper.Release(db);
+                }
             }
+        }
 
-            return result;
+        public static void Release(IEnumerable<SheetInfo> sheets)
+        {
+            var released = new List<object>();
+            foreach (var sheet in sheets ?? new List<SheetInfo>())
+            {
+                if (sheet == null) continue;
+                ReleaseOnce(sheet.Com, released);
+                ReleaseOnce(sheet.OwnerCom, released);
+                ReleaseOnce(sheet.DbCom, released);
+                sheet.Com = null;
+                sheet.OwnerCom = null;
+                sheet.DbCom = null;
+            }
+        }
+
+        private static void ReleaseOnce(object comObject, List<object> released)
+        {
+            if (comObject == null || released.Exists(x => ReferenceEquals(x, comObject))) return;
+            released.Add(comObject);
+            ComHelper.Release(comObject);
         }
 
         private static void CollectSheets(AcSm.IAcSmSubset subset, AcSm.IAcSmDatabase db, string ssName,
@@ -168,27 +210,35 @@ namespace CADtools
 
                         try
                         {
-                            AcSm.IAcSmAcDbLayoutReference layRef = sheet.GetLayout();
-                            if (layRef != null)
+                            AcSm.IAcSmAcDbLayoutReference layRef = null;
+                            try
                             {
-                                string refName = Safe(() => layRef.GetName());
-                                si.LayoutName = refName;
-                                var objRef = layRef as AcSm.IAcSmAcDbObjectReference;
-                                if (objRef != null) si.DwgPath = Safe(() => objRef.GetFileName());
+                                layRef = sheet.GetLayout();
+                                if (layRef != null)
+                                {
+                                    string refName = Safe(() => layRef.GetName());
+                                    si.LayoutName = refName;
+                                    var objRef = layRef as AcSm.IAcSmAcDbObjectReference;
+                                    if (objRef != null) si.DwgPath = Safe(() => objRef.GetFileName());
 
-                                // Identity theo ObjectId/handle: uu tien handle da luu, roi den ten reference.
-                                string storedHandle;
-                                if (!sheetCustom.TryGetValue(LayoutHandleKey, out storedHandle)) storedHandle = "";
-                                string liveName, handle;
-                                if (locator != null && locator.Resolve(si.DwgPath, storedHandle, refName, out liveName, out handle))
-                                {
-                                    if (!string.IsNullOrEmpty(liveName)) si.LayoutName = liveName;
-                                    si.LayoutHandle = handle;
+                                    // Identity theo ObjectId/handle: uu tien handle da luu, roi den ten reference.
+                                    string storedHandle;
+                                    if (!sheetCustom.TryGetValue(LayoutHandleKey, out storedHandle)) storedHandle = "";
+                                    string liveName, handle;
+                                    if (locator != null && locator.Resolve(si.DwgPath, storedHandle, refName, out liveName, out handle))
+                                    {
+                                        if (!string.IsNullOrEmpty(liveName)) si.LayoutName = liveName;
+                                        si.LayoutHandle = handle;
+                                    }
+                                    else
+                                    {
+                                        si.LayoutHandle = storedHandle; // giu lai neu co (du chua resolve duoc)
+                                    }
                                 }
-                                else
-                                {
-                                    si.LayoutHandle = storedHandle; // giu lai neu co (du chua resolve duoc)
-                                }
+                            }
+                            finally
+                            {
+                                ComHelper.Release(layRef);
                             }
                         }
                         catch { }
@@ -219,8 +269,14 @@ namespace CADtools
                             string subName = "";
                             try { subName = Safe(() => sub.GetName()); } catch { }
                             string p = string.IsNullOrWhiteSpace(subsetPath) ? subName : (subsetPath + " / " + subName);
-                            CollectSheets(sub, db, ssName, ssCustom, outList, p, locator);
+                            try { CollectSheets(sub, db, ssName, ssCustom, outList, p, locator); }
+                            finally
+                            {
+                                if (!outList.Exists(s => ReferenceEquals(s.OwnerCom, sub)))
+                                    ComHelper.Release(sub);
+                            }
                         }
+                        else ComHelper.Release(comp);
                     }
                 }
             }
@@ -248,6 +304,7 @@ namespace CADtools
                     object v = null;
                     try { v = val.GetValue(); } catch { }
                     dict[name] = v == null ? "" : v.ToString();
+                    ComHelper.Release(val);
                     name = null; val = null;
                     pe.Next(out name, out val);
                 }
@@ -256,6 +313,7 @@ namespace CADtools
             finally
             {
                 ComHelper.Release(pe);
+                ComHelper.Release(bag);
             }
 
             return dict;
