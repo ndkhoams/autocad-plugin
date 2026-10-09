@@ -258,7 +258,7 @@ namespace CADtools
                     _download.Enabled = false;
                     _progress.Value = 0;
                     _progress.Style = ProgressBarStyle.Marquee;
-                    _status.Text = "Đang tải file ISO từ GitHub...";
+                    _status.Text = "Đang tải file ISO...";
                     string temporaryPath = Path.Combine(Path.GetTempPath(), "CADtools_" + Guid.NewGuid().ToString("N") + ".iso");
                     try
                     {
