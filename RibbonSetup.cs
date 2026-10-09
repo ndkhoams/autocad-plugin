@@ -52,6 +52,9 @@ namespace CADtools
             // Chức năng thứ 2
             src.Items.Add(MakeButton("SBP", "Sheet Block Manager \n and Printer", "SBP ",
             "Liệt kê & in block khung tên."));
+
+            src.Items.Add(MakeButton("SPUPDATE", "Check for \nUpdates", "SPUPDATE ",
+            "Kiểm tra phiên bản Sheet Printer và tải bản cập nhật."));
         }
 
         // macro ket thuc bang dau cach = Enter (chay lenh ngay).

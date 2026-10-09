@@ -202,6 +202,7 @@ namespace CADtools
                     SaveResult sr;
                     try { sr = SheetSetWriter.Save(allSheets, deletedSheets, ed); }
                     catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
+                    finally { SheetSetReader.Release(deletedSheets); }
                     ed.WriteMessage("\n{0} {1} sheet. Revision ghi được: {2}, không ghi được: {3}.",
                     sr.CommitSucceeded ? "Đã commit" : "Đã xử lý nhưng chưa commit",
                     sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);

@@ -78,7 +78,8 @@ namespace CADtools
             _ed = doc.Editor;
             _logic = new SheetBlockPlotLogic(doc);
 
-            Text = "Sheet Block Plotter - Build261009 ©KhoaND";
+            Text = "Sheet Block Plotter - Build"
+                + UpdateCommands.BuildTimeLocal.ToString("yyyyMMdd-HHmmss") + " ©KhoaND";
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(1240, 760);
             MinimumSize = new Size(940, 620);
