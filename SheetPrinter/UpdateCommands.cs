@@ -31,7 +31,7 @@ namespace CADtools
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Sheet Printer -SPUPDATE");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Sheet Printertạ-SPUPDATE");
             return client;
         }
 
