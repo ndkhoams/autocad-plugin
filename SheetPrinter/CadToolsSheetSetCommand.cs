@@ -452,7 +452,6 @@ namespace CADtools
                     }
 
                     Document sheetDocument = null;
-                    bool weOpenedThis = false;
                     try
                     {
                         UpdateOptionalPlotProgress(progressLabel, progressBar,
@@ -464,7 +463,6 @@ namespace CADtools
                         {
                             sheetDocument = AcadApp.DocumentManager.Open(sheet.DwgPath, false);
                             openedDocuments.Add(sheetDocument);
-                            weOpenedThis = true;
                         }
 
                         AcadApp.DocumentManager.MdiActiveDocument = sheetDocument;
@@ -494,7 +492,10 @@ namespace CADtools
                         // DWG co nhieu layout van giu mo cho den khi in xong layout cuoi.
                         try
                         {
-                            if (weOpenedThis && sheetDocument != null)
+                            // Chi dong file do plugin tu mo trong phien in nay (nam trong openedDocuments).
+                            // openedDocuments.Contains dung cho ca DWG nhieu sheet: sheet dau mo file,
+                            // sheet cuoi (tim thay qua FindOpenDocument) van dong duoc.
+                            if (sheetDocument != null && openedDocuments.Contains(sheetDocument))
                             {
                                 int lastIdx;
                                 if (lastUseIndex.TryGetValue(NormalizeDwgKey(sheet.DwgPath), out lastIdx) && lastIdx == i)
