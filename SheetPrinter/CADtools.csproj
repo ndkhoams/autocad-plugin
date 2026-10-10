@@ -66,6 +66,10 @@
 		</COMFileReference>
 	</ItemGroup>
 
+	<Target Name="UpdateBuildTimestamp" BeforeTargets="CoreCompile;BuildAll" Condition="'$(BuildAllApiGroups)' != 'true'">
+		<Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\UpdateBuildTimestamp.ps1&quot; -SourceFile &quot;$(MSBuildProjectDirectory)\UpdateCommands.cs&quot;" />
+	</Target>
+
 	<Target Name="BuildAll">
 		<MSBuild Projects="$(MSBuildProjectFullPath)"
 			Targets="Restore;Build"
