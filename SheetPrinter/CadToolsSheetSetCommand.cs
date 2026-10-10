@@ -352,11 +352,16 @@ namespace CADtools
             Form progressForm = null;
             Label progressLabel = null;
             ProgressBar progressBar = null;
-            string diagnosticLogPath = Path.Combine(outputDirectory, "_ssm_plot_diagnostics.log");
+            string diagnosticLogPath = EnablePlotDiagnostics
+                ? Path.Combine(outputDirectory, "_ssm_plot_diagnostics.log")
+                : null;
 
             try
             {
-                try { File.WriteAllText(diagnosticLogPath, ""); } catch { }
+                if (EnablePlotDiagnostics)
+                {
+                    try { File.WriteAllText(diagnosticLogPath, ""); } catch { }
+                }
 
                 try
                 {
@@ -507,7 +512,8 @@ namespace CADtools
                 }
 
                 string resultSummary = "Hoàn tất in tùy chọn: " + successCount + " thành công, " + failureCount
-                    + " lỗi -> " + outputDirectory + " | Chẩn đoán: " + diagnosticLogPath;
+                    + " lỗi -> " + outputDirectory
+                    + (EnablePlotDiagnostics ? " | Chẩn đoán: " + diagnosticLogPath : "");
                 System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL] " + resultSummary);
                 return resultSummary;
             }
@@ -684,6 +690,8 @@ namespace CADtools
 
         // Tam thoi tat ghi file chan doan (log/DSD) ra thu muc output cung PDF.
         private static bool EnablePublishDiagnostics = false;
+        // Tam thoi tat ghi file _ssm_plot_diagnostics.log khi in tuy chon.
+        private static bool EnablePlotDiagnostics = false;
 
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
