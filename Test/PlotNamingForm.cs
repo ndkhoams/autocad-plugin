@@ -1,0 +1,981 @@
+using CADtools;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Windows.Forms.VisualStyles;
+using PlotSettings = Autodesk.AutoCAD.DatabaseServices.PlotSettings;
+using PlotSettingsValidator = Autodesk.AutoCAD.DatabaseServices.PlotSettingsValidator;
+
+namespace CADtools
+{
+    // Form GOP duy nhat: vua dat ten & in PDF theo Sheet Set, vua sua & luu nguoc Sheet Set (.dst),
+    // vua xuat Excel — tat ca trong 1 cua so (khong con tach thanh 2 form rieng).
+    public class PlotNamingForm : Form
+    {
+        public enum SsmAction { None, Print, PrintWithOptions, Save }
+
+        private readonly System.Collections.Generic.List<SheetInfo> _sheets;
+        private readonly System.Collections.Generic.List<string> _customKeys;
+        private static readonly string[] _whitelist = { "SHT", "CONT" };
+
+        // DST picker (NEW)
+        private TextBox txtDstPath;
+        private Button btnDstBrowse;
+        public bool DstChanged { get; private set; }
+        public string DstPath { get { return txtDstPath == null ? "" : txtDstPath.Text.Trim(); } }
+
+        private TextBox txtTemplate, txtOutDir;
+        private FlowLayoutPanel pnlTokens;
+        private CheckBox chkMerged;
+        private DataGridView dgv;
+        private Button btnBrowse, btnPrint, btnPrintOptions, btnSave, btnExport, btnCancel, btnAll, btnNone, btnDelete;
+        private ComboBox cbPaper, cbStyle;
+        private Label lblSelInfo;
+        private readonly HashSet<SheetInfo> _excluded = new HashSet<SheetInfo>();
+        private readonly Dictionary<string, bool> _dwgExistsCache =
+            new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        // Subset collapse state (true = collapsed)
+        private readonly Dictionary<string, bool> _subsetCollapsed = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private int _lastCheckRow = -1;
+        private bool _shiftDown = false;
+        private bool _bulk = false;
+
+        public SsmAction Action { get; private set; }
+        public string Template { get { return txtTemplate.Text; } }
+        public string OutputDir { get { return txtOutDir.Text; } }
+        public bool Merged { get { return chkMerged.Checked; } }
+        public string PaperMedia
+        {
+            get
+            {
+                switch (Convert.ToString(cbPaper == null ? null : cbPaper.SelectedItem))
+                {
+                    case "A0": return "ISO_full_bleed_A0_(1189.00_x_841.00_MM)";
+                    case "A1": return "ISO_full_bleed_A1_(841.00_x_594.00_MM)";
+                    case "A2": return "ISO_full_bleed_A2_(594.00_x_420.00_MM)";
+                    default: return "ISO_full_bleed_A3_(420.00_x_297.00_MM)";
+                }
+            }
+        }
+        public string PlotStyle { get { return Convert.ToString(cbStyle == null ? null : cbStyle.SelectedItem); } }
+        public System.Collections.Generic.List<SheetInfo> DeletedSheets { get; } = new System.Collections.Generic.List<SheetInfo>();
+        public System.Collections.Generic.List<SheetInfo> SelectedSheets
+        {
+            get
+            {
+                var list = new System.Collections.Generic.List<SheetInfo>();
+                foreach (var s in _sheets) if (!_excluded.Contains(s)) list.Add(s);
+                return list;
+            }
+        }
+
+        public PlotNamingForm(System.Collections.Generic.List<SheetInfo> sheets, string defaultDir, string currentDstPath)
+        {
+            _sheets = sheets ?? new System.Collections.Generic.List<SheetInfo>();
+            _customKeys = _sheets.SelectMany(s => s.Custom.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(k => _whitelist.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(k => Array.FindIndex(_whitelist, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+            Text = "Sheet Set Manager and Printer - Build"
+                + UpdateCommands.BuildTimeLocal.ToString("yyyyMMdd-HHmmss") + " ©KhoaND";
+            ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
+            Font = new Font("Segoe UI", 9.75f);
+            MinimumSize = new Size(1160, 640);
+            Padding = new Padding(6);
+
+            // Dịch cụm trên đầu sang phải để không che text bên trái
+            const int labelW = 170;
+            const int fieldL = 190;
+            const int rightEdge = 1180;
+
+            // DST picker row
+            var lblDst = new Label { Text = "Sheet set (.dst):", Left = 20, Top = 6, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            Controls.Add(lblDst);
+
+            txtDstPath = new TextBox
+            {
+                Left = fieldL,
+                Top = 4,
+                Width = rightEdge - fieldL - 50,
+                Height = 26,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                ReadOnly = true,
+                Text = currentDstPath ?? ""
+            };
+            Controls.Add(txtDstPath);
+
+            btnDstBrowse = new Button { Text = "...", Left = rightEdge - 44, Top = 3, Width = 44, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnDstBrowse.Click += (s, e) =>
+            {
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Filter = "Sheet Set (*.dst)|*.dst";
+                    dlg.Title = "Chọn file Sheet Set (.dst)";
+                    dlg.Multiselect = false;
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                    txtDstPath.Text = dlg.FileName;
+                    DstChanged = true;
+                    Action = SsmAction.None;
+                    DialogResult = DialogResult.OK;
+                }
+            };
+            Controls.Add(btnDstBrowse);
+
+            // shift the rest of controls down by 30px
+            const int dy = 30;
+
+            var lblTpl = new Label { Text = "Tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            Controls.Add(lblTpl);
+            txtTemplate = new TextBox
+            {
+                Left = fieldL,
+                Top = 24 + dy,
+                Width = rightEdge - fieldL,
+                Height = 26,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Text = "$(SheetNumber)-Sht$(SHT)-($(Revision))"
+            };
+            txtTemplate.TextChanged += (s, e) => UpdateAllPreviews();
+            Controls.Add(txtTemplate);
+
+            var lblTok = new Label { Text = "Add Field:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            Controls.Add(lblTok);
+            pnlTokens = new FlowLayoutPanel
+            {
+                Left = fieldL,
+                Top = 64 + dy,
+                Width = rightEdge - fieldL,
+                Height = 56,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                AutoScroll = true,
+                WrapContents = true,
+                Padding = new Padding(2)
+            };
+            Controls.Add(pnlTokens);
+            BuildTokenButtons();
+
+            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 130 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            Controls.Add(lblDir);
+            txtOutDir = new TextBox
+            {
+                Left = fieldL,
+                Top = 128 + dy,
+                Width = 350,
+                Height = 26,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                Text = defaultDir ?? ""
+            };
+            txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
+            Controls.Add(txtOutDir);
+            btnBrowse = new Button { Text = "...", Left = fieldL + 356, Top = 127 + dy, Width = 34, Height = 28 };
+            btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
+            Controls.Add(btnBrowse);
+
+            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 166 + dy, Width = 600, Height = 24 };
+            chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
+            Controls.Add(chkMerged);
+
+            var lblPaper = new Label { Text = "Khổ giấy:", Left = 594, Top = 130 + dy, Width = 50, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbPaper = new ComboBox { Left = 644, Top = 128 + dy, Width = 58, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            cbPaper.Items.AddRange(new object[] { "A0", "A1", "A2", "A3" });
+            cbPaper.SelectedItem = "A3";
+            var lblStyle = new Label { Text = "Nét in:", Left = 708, Top = 130 + dy, Width = 42, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbStyle = new ComboBox { Left = 750, Top = 128 + dy, Width = 150, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadPlotStyles();
+            Controls.Add(lblPaper);
+            Controls.Add(cbPaper);
+            Controls.Add(lblStyle);
+            Controls.Add(cbStyle);
+
+            var lblHint = new Label
+            {
+                Text = "Sửa trực tiếp trong bảng (Sheet Number, Sheet Title, Revision, Revision Date, Issue Purpose, CONT, SHT, Layout Name, DWG Path). "
+            + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
+                Left = 20,
+                Top = 196 + dy,
+                Width = rightEdge - 20,
+                Height = 24,
+                ForeColor = Color.Gray,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            Controls.Add(lblHint);
+
+            dgv = new DataGridView
+            {
+                Left = 20,
+                Top = 226 + dy,
+                Width = rightEdge - 20,
+                Height = 484,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                AllowUserToAddRows = false,
+                ReadOnly = false,
+                RowHeadersVisible = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                SelectionMode = DataGridViewSelectionMode.CellSelect,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            dgv.RowTemplate.Height = 28;
+            dgv.ColumnHeadersHeight = 34;
+            dgv.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+            dgv.DefaultCellStyle.Padding = new Padding(4, 2, 4, 2);
+
+            var colSel = new DataGridViewCheckBoxColumn { Name = "Sel", HeaderText = "In", Width = 40, FillWeight = 40, SortMode = DataGridViewColumnSortMode.NotSortable };
+            dgv.Columns.Add(colSel);
+            AddCol("STT", "STT", 50, true);
+            AddCol("Number", "Sheet Number", 200, false);
+            AddCol("Title", "Sheet Title", 300, false);
+            AddCol("Rev", "Rev", 50, false);
+            AddCol("RevDate", "Rev Date", 80, false);
+            AddCol("Purpose", "Issue Purpose", 200, false);
+            // SUBSET: không dùng cột riêng. Thay vào đó chèn 1 dòng tiêu đề trước sheet đầu tiên của mỗi subset.
+            // (dòng tiêu đề sẽ hiển thị ở cột "Sheet Title")
+            // 2 cột SHT/CONT đứng trước Layout Name
+            AddCol("cust::SHT", "SHT", 50, false);
+            AddCol("cust::CONT", "CONT", 50, false);
+            AddCol("LayoutName", "Layout Name", 250, false);
+            AddCol("DwgPath", "DWG Path", 100, false);
+            // Nút duyệt DWG theo từng sheet
+            dgv.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "DwgBrowse",
+                HeaderText = "",
+                Text = "...",
+                UseColumnTextForButtonValue = true,
+                Width = 36,
+                FillWeight = 36,
+                SortMode = DataGridViewColumnSortMode.NotSortable
+            });
+            // Tránh trùng cột SHT/CONT (đã add phía trên)
+            foreach (var k in _customKeys)
+            {
+                if (string.Equals(k, "SHT", StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(k, "CONT", StringComparison.OrdinalIgnoreCase)) continue;
+                AddCol("cust::" + k, k, 80, false);
+            }
+            AddCol("File", "Tên file PDF", 300, true);
+
+            dgv.Columns["STT"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            dgv.Columns["STT"].DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+            dgv.Columns["Rev"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+
+            dgv.CurrentCellDirtyStateChanged += (s, e) => { if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+            dgv.CellMouseDown += (s, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == 0) _shiftDown = (Control.ModifierKeys & Keys.Shift) == Keys.Shift; };
+
+            // Tô đỏ DWG path nếu SSM không tìm thấy file DWG
+            dgv.CellFormatting += (s, e) =>
+            {
+                try
+                {
+                    if (e.RowIndex < 0) return;
+                    if (dgv.Columns[e.ColumnIndex].Name != "DwgPath") return;
+
+                    string p = e.Value == null ? "" : e.Value.ToString();
+                    if (string.IsNullOrWhiteSpace(p)) return;
+
+                    bool ok;
+                    if (!_dwgExistsCache.TryGetValue(p, out ok))
+                    {
+                        ok = File.Exists(p);
+                        _dwgExistsCache[p] = ok;
+                    }
+                    e.CellStyle.ForeColor = ok ? dgv.DefaultCellStyle.ForeColor : Color.Red;
+                }
+                catch { }
+            };
+
+            // Header row (subset):
+            // 1) Checkbox "In" ở header để chọn/bỏ toàn bộ sheet trong subset
+            // 2) Ẩn nút "..." chọn DWG
+            // 3) Hiển thị nút +/- ở cột STT để thu gọn/bung sheet của subset (như SSM)
+            // 4) Hiển thị tên subset ở cột "Sheet Number"
+            dgv.CellPainting += (s, e) =>
+            {
+                try
+                {
+                    if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                    var row = dgv.Rows[e.RowIndex];
+                    bool isHeader = (row != null && row.Tag is string && ((string)row.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal));
+                    if (!isHeader) return;
+
+                    string subsetKey = "";
+                    try { subsetKey = ((string)row.Tag).Substring("__SUBSET__".Length); } catch { subsetKey = ""; }
+
+                    string col = dgv.Columns[e.ColumnIndex].Name;
+
+                    // (1) Checkbox cột In ở header: chọn/bỏ toàn bộ sheet trong subset
+                    if (col == "Sel")
+                    {
+                        Rectangle r = e.CellBounds;
+
+                        bool selRow = false;
+                        try { selRow = row.Selected; } catch { }
+                        Color back = selRow ? dgv.DefaultCellStyle.SelectionBackColor : row.DefaultCellStyle.BackColor;
+
+                        using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, r);
+
+                        bool hasAny = false;
+                        bool allChecked = true;
+
+                        try
+                        {
+                            string subset = subsetKey ?? "";
+                            foreach (var sh in _sheets)
+                            {
+                                if (sh == null) continue;
+                                string sp = (sh.SubsetPath ?? "").Trim();
+                                if (!string.Equals(sp, subset, StringComparison.OrdinalIgnoreCase)) continue;
+                                hasAny = true;
+                                if (_excluded.Contains(sh)) { allChecked = false; break; }
+                            }
+                        }
+                        catch { allChecked = false; }
+
+                        var st = (hasAny && allChecked) ? CheckBoxState.CheckedNormal : CheckBoxState.UncheckedNormal;
+                        Size sz = CheckBoxRenderer.GetGlyphSize(e.Graphics, st);
+                        Point pt = new Point(r.X + (r.Width - sz.Width) / 2, r.Y + (r.Height - sz.Height) / 2);
+                        CheckBoxRenderer.DrawCheckBox(e.Graphics, pt, st);
+
+                        e.Handled = true;
+                        return;
+                    }
+
+                    // (2) Ẩn nút "..." cột duyệt DWG ở header
+                    if (col == "DwgBrowse")
+                    {
+                        e.PaintBackground(e.ClipBounds, true);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    // (3) Vẽ lại cell "Sheet Number" để đảm bảo luôn hiện chữ (kể cả khi selected)
+                    if (col == "Number")
+                    {
+                        Rectangle r = e.CellBounds;
+
+                        // Nếu dòng header đang được chọn, dùng màu selection để không bị "mất chữ"
+                        bool sel = false;
+                        try { sel = row.Selected; } catch { }
+                        Color back = sel ? dgv.DefaultCellStyle.SelectionBackColor : row.DefaultCellStyle.BackColor;
+                        Color fore = sel ? dgv.DefaultCellStyle.SelectionForeColor : row.DefaultCellStyle.ForeColor;
+
+                        using (var b = new SolidBrush(back))
+                        using (var p = new Pen(dgv.GridColor))
+                        {
+                            e.Graphics.FillRectangle(b, r);
+                            e.Graphics.DrawRectangle(p, new Rectangle(r.X, r.Y, r.Width - 1, r.Height - 1));
+                        }
+
+                        string subsetName = "";
+                        try { subsetName = Convert.ToString(row.Cells["Number"].Value ?? ""); } catch { }
+                        subsetName = (subsetName ?? "").Trim();
+
+                        TextRenderer.DrawText(
+                        e.Graphics,
+                        subsetName,
+                        row.DefaultCellStyle.Font ?? dgv.Font,
+                        new Rectangle(r.X + 6, r.Y, r.Width - 10, r.Height),
+                        fore,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+
+                        e.Handled = true;
+                        return;
+                    }
+
+                    // Nút +/- ở cột STT để thu gọn/bung subset
+                    if (col == "STT")
+                    {
+                        Rectangle r = e.CellBounds;
+
+                        bool sel = false;
+                        try { sel = row.Selected; } catch { }
+                        Color back = sel ? dgv.DefaultCellStyle.SelectionBackColor : row.DefaultCellStyle.BackColor;
+                        Color fore = sel ? dgv.DefaultCellStyle.SelectionForeColor : row.DefaultCellStyle.ForeColor;
+
+                        using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, r);
+
+                        bool collapsed = false;
+                        try { collapsed = _subsetCollapsed.ContainsKey(subsetKey) && _subsetCollapsed[subsetKey]; } catch { collapsed = false; }
+                        string sign = collapsed ? "+" : "-";
+
+                        TextRenderer.DrawText(
+                        e.Graphics,
+                        sign,
+                        row.DefaultCellStyle.Font ?? dgv.Font,
+                        new Rectangle(r.X, r.Y, r.Width, r.Height),
+                        fore,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+                        e.Handled = true;
+                        return;
+                    }
+
+                    // Chặn cell Title của header tự vẽ chữ (nếu không sẽ bị trùng text subset)
+                    if (col == "Title")
+                    {
+                        // Bỏ đường kẻ dọc giữa Number|Title
+                        try { e.AdvancedBorderStyle.Left = DataGridViewAdvancedCellBorderStyle.None; } catch { }
+                        e.PaintBackground(e.ClipBounds, true);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                catch { }
+            };
+
+            // Click vào ô STT của header row để thu gọn/bung subset
+            // (CellContentClick thường chỉ bắn cho checkbox/button; ô text dùng CellClick)
+            dgv.CellClick += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+
+                // Click checkbox "In" ở header row -> chọn/bỏ toàn bộ sheet trong subset
+                if (dgv.Columns[e.ColumnIndex].Name == "Sel")
+                {
+                    var r0 = dgv.Rows[e.RowIndex];
+                    if (r0 != null && r0.Tag is string && ((string)r0.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal))
+                    {
+                        string sk0 = "";
+                        try { sk0 = ((string)r0.Tag).Substring("__SUBSET__".Length); } catch { sk0 = ""; }
+                        string subset = (sk0 ?? "").Trim();
+
+                        bool hasAny = false;
+                        bool allChecked = true;
+                        foreach (var sh in _sheets)
+                        {
+                            if (sh == null) continue;
+                            string sp = (sh.SubsetPath ?? "").Trim();
+                            if (!string.Equals(sp, subset, StringComparison.OrdinalIgnoreCase)) continue;
+                            hasAny = true;
+                            if (_excluded.Contains(sh)) { allChecked = false; break; }
+                        }
+
+                        // Toggle: nếu đang allChecked => bỏ chọn hết; ngược lại => chọn hết
+                        bool targetChecked = !(hasAny && allChecked);
+
+                        foreach (var sh in _sheets)
+                        {
+                            if (sh == null) continue;
+                            string sp = (sh.SubsetPath ?? "").Trim();
+                            if (!string.Equals(sp, subset, StringComparison.OrdinalIgnoreCase)) continue;
+
+                            if (targetChecked) _excluded.Remove(sh);
+                            else _excluded.Add(sh);
+                        }
+
+                        SyncChecks();
+                        UpdateAllPreviews();
+                        UpdateSelectionInfo();
+                        dgv.Invalidate();
+                        return;
+                    }
+                }
+
+                // Click vào ô STT của header row để thu gọn/bung subset
+                if (dgv.Columns[e.ColumnIndex].Name != "STT") return;
+
+                var r = dgv.Rows[e.RowIndex];
+                if (r != null && r.Tag is string && ((string)r.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal))
+                {
+                    string sk = "";
+                    try { sk = ((string)r.Tag).Substring("__SUBSET__".Length); } catch { sk = ""; }
+                    bool cur = false;
+                    try { cur = _subsetCollapsed.ContainsKey(sk) && _subsetCollapsed[sk]; } catch { cur = false; }
+                    _subsetCollapsed[sk] = !cur;
+                    BuildRows();
+                    UpdateAllPreviews();
+                    UpdateSelectionInfo();
+                }
+            };
+
+            // Nút "..." để duyệt lại DWG cho từng sheet
+            dgv.CellContentClick += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                if (e.ColumnIndex < 0) return;
+
+                if (dgv.Columns[e.ColumnIndex].Name != "DwgBrowse") return;
+
+                var row = dgv.Rows[e.RowIndex];
+                var sheet = row.Tag as SheetInfo;
+                if (sheet == null) return;
+
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Filter = "DWG (*.dwg)|*.dwg";
+                    dlg.Title = "Chọn file DWG";
+                    dlg.Multiselect = false;
+
+                    try
+                    {
+                        string current = sheet.DwgPath ?? "";
+                        if (!string.IsNullOrWhiteSpace(current))
+                        {
+                            dlg.InitialDirectory = Path.GetDirectoryName(current);
+                            dlg.FileName = Path.GetFileName(current);
+                        }
+                    }
+                    catch { }
+
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                    // Set cell -> sẽ kích hoạt CellValueChanged + propagate DWG path theo rule hiện tại
+                    row.Cells["DwgPath"].Value = dlg.FileName;
+                    dgv.EndEdit();
+                }
+            };
+            dgv.CellValueChanged += (s, e) =>
+            {
+                if (_bulk || e.RowIndex < 0) return;
+                var row = dgv.Rows[e.RowIndex];
+                var sheet = row.Tag as SheetInfo;
+                if (sheet == null) return;
+                string col = dgv.Columns[e.ColumnIndex].Name;
+
+                if (col == "Sel")
+                {
+                    bool isChecked = Convert.ToBoolean(row.Cells[0].Value ?? false);
+                    ApplyCheck(sheet, isChecked);
+                    if (_shiftDown && _lastCheckRow >= 0 && _lastCheckRow != e.RowIndex)
+                    {
+                        int a = Math.Min(_lastCheckRow, e.RowIndex);
+                        int b = Math.Max(_lastCheckRow, e.RowIndex);
+                        _bulk = true;
+                        for (int i = a; i <= b; i++)
+                        {
+                            dgv.Rows[i].Cells[0].Value = isChecked;
+                            var sh = dgv.Rows[i].Tag as SheetInfo;
+                            if (sh != null) ApplyCheck(sh, isChecked);
+                        }
+                        _bulk = false;
+                    }
+                    _lastCheckRow = e.RowIndex;
+                    _shiftDown = false;
+                    return;
+                }
+
+                if (col == "DwgPath")
+                {
+                    // Nếu sửa DWG path ở 1 sheet thì tất cả sheet dùng cùng DWG cũ cũng phải đổi theo
+                    string oldPath = sheet.DwgPath ?? "";
+                    string newPath = Str(row, "DwgPath");
+                    if (!string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _dwgExistsCache.Remove(oldPath);
+                        _dwgExistsCache.Remove(newPath);
+                        foreach (var sh in _sheets)
+                        {
+                            if (string.Equals((sh.DwgPath ?? ""), oldPath, StringComparison.OrdinalIgnoreCase))
+                                sh.DwgPath = newPath;
+                        }
+
+                        // cập nhật UI (các row đang hiển thị)
+                        _bulk = true;
+                        foreach (DataGridViewRow r in dgv.Rows)
+                        {
+                            var sh2 = r.Tag as SheetInfo;
+                            if (sh2 != null && string.Equals((sh2.DwgPath ?? ""), newPath, StringComparison.OrdinalIgnoreCase))
+                                r.Cells["DwgPath"].Value = newPath;
+                        }
+                        _bulk = false;
+                    }
+                }
+
+                CommitRow(row, sheet);
+                UpdateAllPreviews();
+                UpdateSelectionInfo();
+            };
+            Controls.Add(dgv);
+
+            BuildRows();
+
+            const int btnTop = 754;
+            btnAll = new Button { Text = "Chọn tất cả", Left = 20, Top = btnTop, Width = 120, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+            btnAll.Click += (s, e) => { _excluded.Clear(); SyncChecks(); UpdateAllPreviews(); };
+            Controls.Add(btnAll);
+
+            btnNone = new Button { Text = "Bỏ chọn tất cả", Left = 148, Top = btnTop, Width = 130, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+            btnNone.Click += (s, e) => { _excluded.Clear(); foreach (var sh in _sheets) _excluded.Add(sh); SyncChecks(); UpdateAllPreviews(); };
+            Controls.Add(btnNone);
+
+            // Info: đã chọn bao nhiêu sheet / tổng
+            lblSelInfo = new Label
+            {
+                Text = "",
+                Left = 740,
+                Top = btnTop + 5,
+                Width = 250,
+                Height = 22,
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+                ForeColor = Color.FromArgb(80, 80, 80)
+            };
+            Controls.Add(lblSelInfo);
+
+            btnExport = new Button { Text = "Xuất Excel", Left = 292, Top = btnTop, Width = 120, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+            btnExport.Click += (s, e) => ExportToExcel();
+            Controls.Add(btnExport);
+
+            btnDelete = new Button { Text = "Xóa sheet đã chọn", Left = 420, Top = btnTop, Width = 150, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+            btnDelete.Click += (s, e) => DeleteCheckedSheets();
+            Controls.Add(btnDelete);
+
+            btnSave = new Button { Text = "Lưu Sheet Set", Left = 580, Top = btnTop, Width = 150, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+            btnSave.Click += (s, e) =>
+            {
+                try
+                {
+                    CommitAll();
+
+                    // Lưu ngay và GIỮ form đang mở (không đóng form)
+                    var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+                    var ed = doc == null ? null : doc.Editor;
+
+                    SaveResult sr = SheetSetWriter.Save(_sheets, DeletedSheets, ed);
+
+                    if (ed != null)
+                    {
+                        ed.WriteMessage("\nĐã lưu {0} sheet. Revision ghi được: {1}, không ghi được: {2}.",
+                        sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
+                        foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
+                    }
+
+                    string saveTitle = sr.CommitSucceeded ? "Đã lưu Sheet Set." : "Không thể commit Sheet Set.";
+                    MessageBox.Show(
+                    this,
+                    saveTitle + "\nSheets processed: " + sr.SheetsSaved
+                    + "\nRevision OK: " + sr.RevisionOk
+                    + "\nRevision Fail: " + sr.RevisionFail
+                    + (sr.Warnings.Count > 0 ? ("\n\nWarnings:\n- " + string.Join("\n- ", sr.Warnings.ToArray())) : ""),
+                    "Lưu Sheet Set",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Lỗi lưu Sheet Set: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+
+            btnPrint = new Button { Text = "In PDF", Left = 1038, Top = 128 + dy, Width = 86, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
+
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 914, Top = 128 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
+
+            btnCancel = new Button { Text = "Đóng", Left = rightEdge - 96, Top = btnTop, Width = 96, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.Cancel };
+
+            Controls.Add(btnSave); Controls.Add(btnPrintOptions); Controls.Add(btnPrint); Controls.Add(btnCancel);
+            AcceptButton = btnPrint; CancelButton = btnCancel;
+
+            UpdateAllPreviews();
+            UpdateSelectionInfo();
+        }
+
+        private void LoadPlotStyles()
+        {
+            try
+            {
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+                if (doc == null) return;
+
+                using (doc.LockDocument())
+                using (var settings = new PlotSettings(false))
+                {
+                    var validator = PlotSettingsValidator.Current;
+                    try { validator.SetPlotConfigurationName(settings, "DWG To PDF.pc3", null); } catch { }
+                    try { validator.RefreshLists(settings); } catch { }
+
+                    cbStyle.Items.Add("None");
+                    var styles = validator.GetPlotStyleSheetList();
+                    if (styles != null)
+                    {
+                        foreach (string style in styles)
+                            if (!string.IsNullOrWhiteSpace(style)) cbStyle.Items.Add(style);
+                    }
+
+                    int monochromeIndex = -1;
+                    for (int i = 0; i < cbStyle.Items.Count; i++)
+                    {
+                        string style = Convert.ToString(cbStyle.Items[i]);
+                        if (!string.IsNullOrWhiteSpace(style) && style.IndexOf("monochrome.ctb", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            monochromeIndex = i;
+                            break;
+                        }
+                    }
+                    cbStyle.SelectedIndex = monochromeIndex >= 0 ? monochromeIndex : 0;
+                }
+            }
+            catch
+            {
+                if (cbStyle.Items.Count == 0) cbStyle.Items.Add("None");
+                if (cbStyle.SelectedIndex < 0 && cbStyle.Items.Count > 0) cbStyle.SelectedIndex = 0;
+            }
+        }
+
+        private void ApplyCheck(SheetInfo sheet, bool isChecked)
+        {
+            if (isChecked) _excluded.Remove(sheet); else _excluded.Add(sheet);
+            UpdateSelectionInfo();
+        }
+
+        private void DeleteCheckedSheets()
+        {
+            var toDelete = _sheets.Where(s => s != null && !_excluded.Contains(s)).ToList();
+            if (toDelete.Count == 0)
+            {
+                MessageBox.Show(this, "Chưa chọn sheet để xóa.", "Xóa sheet", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (MessageBox.Show(this,
+                "Xóa " + toDelete.Count + " sheet khỏi Sheet Set? Thao tác sẽ ghi vào .dst khi lưu.",
+                "Xóa sheet", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                return;
+
+            foreach (var sheet in toDelete)
+            {
+                if (!DeletedSheets.Contains(sheet)) DeletedSheets.Add(sheet);
+                _sheets.Remove(sheet);
+            }
+
+            _excluded.Clear();
+            BuildRows();
+            UpdateAllPreviews();
+            UpdateSelectionInfo();
+        }
+
+        private void AddCol(string name, string header, int width, bool readOnly)
+        {
+            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = width, FillWeight = width, ReadOnly = readOnly, SortMode = DataGridViewColumnSortMode.NotSortable });
+        }
+
+        private void BuildTokenButtons()
+        {
+            var tokens = new System.Collections.Generic.List<string> { "SheetNumber", "SheetTitle", "SheetDesc", "SheetSetName", "LayoutName", "DwgName", "Revision", "RevisionDate", "IssuePurpose" };
+            var customShow = new[] { "SHT", "CONT" };
+            var customKeys = _sheets.SelectMany(s => s.Custom.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(k => customShow.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(k => Array.FindIndex(customShow, w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase)));
+            foreach (var k in customKeys) tokens.Add(k);
+
+            foreach (var t in tokens)
+            {
+                var b = new Button { Text = t, AutoSize = true, Margin = new Padding(3), Padding = new Padding(4, 2, 4, 2) };
+                string token = "$(" + t + ")";
+                b.Click += (s, e) => { int i = txtTemplate.SelectionStart; txtTemplate.Text = txtTemplate.Text.Insert(i, token); txtTemplate.SelectionStart = i + token.Length; txtTemplate.Focus(); };
+                pnlTokens.Controls.Add(b);
+            }
+        }
+
+        private void BuildRows()
+        {
+            _bulk = true;
+            try
+            {
+                dgv.Rows.Clear();
+
+                string lastSubset = null;
+
+                for (int idx = 0; idx < _sheets.Count; idx++)
+                {
+                    var s = _sheets[idx];
+                    string subset = (s == null ? "" : (s.SubsetPath ?? "")).Trim();
+
+                    // Khi chuyển subset, chèn 1 dòng tiêu đề (group header) trước sheet đầu tiên của subset
+                    if (!string.Equals(lastSubset, subset, StringComparison.OrdinalIgnoreCase))
+                    {
+                        int hi = dgv.Rows.Add();
+                        var hr = dgv.Rows[hi];
+                        hr.Tag = "__SUBSET__" + (subset ?? ""); // header row
+                        hr.ReadOnly = true;
+
+                        // Style header row
+                        hr.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+                        hr.DefaultCellStyle.ForeColor = Color.FromArgb(60, 60, 60);
+                        hr.DefaultCellStyle.Font = new Font(Font, FontStyle.Bold);
+
+                        // Header: ghi tên subset vào cột "Sheet Number" (đỡ phải gộp cột)
+                        hr.Cells["Sel"].Value = false;
+                        hr.Cells["STT"].Value = "";
+                        hr.Cells["Number"].Value = string.IsNullOrWhiteSpace(subset) ? "[ROOT]" : subset;
+                        hr.Cells["Title"].Value = "";
+
+                        lastSubset = subset;
+                    }
+
+                    // Nếu subset đang collapsed thì bỏ qua không add sheet rows
+                    bool collapsed = false;
+                    try { collapsed = _subsetCollapsed.ContainsKey(subset) && _subsetCollapsed[subset]; } catch { collapsed = false; }
+                    if (collapsed) continue;
+
+                    int i = dgv.Rows.Add();
+                    var row = dgv.Rows[i];
+                    row.Tag = s;
+                    row.Cells["Sel"].Value = !_excluded.Contains(s);
+                    // STT cố định theo thứ tự gốc của danh sách sheet (idx + 1), không đổi khi collapse
+                    row.Cells["STT"].Value = (idx + 1).ToString();
+                    row.Cells["Number"].Value = s.Number;
+                    row.Cells["Title"].Value = s.Title;
+                    row.Cells["Rev"].Value = s.Revision;
+                    row.Cells["RevDate"].Value = s.RevisionDate;
+                    row.Cells["Purpose"].Value = s.IssuePurpose;
+                    row.Cells["LayoutName"].Value = s.LayoutName;
+                    row.Cells["DwgPath"].Value = s.DwgPath;
+                    foreach (var k in _customKeys)
+                    {
+                        string v; s.Custom.TryGetValue(k, out v);
+                        row.Cells["cust::" + k].Value = v ?? "";
+                    }
+                }
+            }
+            finally { _bulk = false; }
+        }
+
+        private void SyncChecks()
+        {
+            _bulk = true;
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                var s = row.Tag as SheetInfo;
+                if (s != null) row.Cells["Sel"].Value = !_excluded.Contains(s);
+            }
+            _bulk = false;
+            UpdateSelectionInfo();
+        }
+
+        private SheetInfo FirstSelected()
+        {
+            foreach (var s in _sheets) if (!_excluded.Contains(s)) return s;
+            return _sheets.Count > 0 ? _sheets[0] : null;
+        }
+
+        private void UpdateAllPreviews()
+        {
+            if (dgv == null) return;
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string mergedName = null;
+            if (chkMerged.Checked)
+            {
+                mergedName = SsmNaming.EnsurePdf(SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, FirstSelected(), true)));
+                if (string.IsNullOrWhiteSpace(mergedName)) mergedName = "MergedSheets.pdf";
+            }
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                var s = row.Tag as SheetInfo;
+                if (s == null) continue;
+                string fileName;
+                if (chkMerged.Checked) fileName = mergedName;
+                else
+                {
+                    string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(Template, s, false));
+                    if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
+                    string baseName = name; int n = 2;
+                    while (!used.Add(name)) name = baseName + " (" + (n++) + ")";
+                    fileName = SsmNaming.EnsurePdf(name);
+                }
+                row.Cells["File"].Value = fileName;
+            }
+        }
+
+        private void CommitRow(DataGridViewRow row, SheetInfo s)
+        {
+            s.Number = Str(row, "Number");
+            s.Title = Str(row, "Title");
+            s.Revision = Str(row, "Rev");
+            s.RevisionDate = Str(row, "RevDate");
+            s.IssuePurpose = Str(row, "Purpose");
+            s.LayoutName = Str(row, "LayoutName");
+            s.DwgPath = Str(row, "DwgPath");
+            s.EditableCustomKeys = _customKeys;
+            foreach (var k in _customKeys) s.Custom[k] = Str(row, "cust::" + k);
+        }
+
+        private void CommitAll()
+        {
+            dgv.EndEdit();
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                var s = row.Tag as SheetInfo;
+                if (s != null) CommitRow(row, s);
+            }
+        }
+
+        private void UpdateSelectionInfo()
+        {
+            try
+            {
+                if (lblSelInfo == null) return;
+                int total = _sheets == null ? 0 : _sheets.Count;
+                int selected = total - (_excluded == null ? 0 : _excluded.Count);
+                if (selected < 0) selected = 0;
+                lblSelInfo.Text = "Đã chọn " + selected + "/" + total + " sheet.";
+            }
+            catch { }
+        }
+
+        private void ExportToExcel()
+        {
+            try
+            {
+                dgv.EndEdit();
+                using (var dlg = new SaveFileDialog { Title = "Xuất bảng Sheet Set ra Excel", Filter = "CSV (mở bằng Excel)|*.csv", FileName = "SheetSet_" + DateTime.Now.ToString("yyyyMMdd_HHmm") + ".csv" })
+                {
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                    string sep = CultureInfo.CurrentCulture.TextInfo.ListSeparator;
+                    if (string.IsNullOrEmpty(sep)) sep = ",";
+
+                    var sb = new StringBuilder();
+                    var headers = new System.Collections.Generic.List<string>();
+                    foreach (DataGridViewColumn c in dgv.Columns)
+                        if (c.Visible && c.Name != "Sel") headers.Add(Csv(c.HeaderText, sep));
+                    sb.AppendLine(string.Join(sep, headers.ToArray()));
+
+                    foreach (DataGridViewRow row in dgv.Rows)
+                    {
+                        if (row.IsNewRow) continue;
+                        if (row.Tag is string && ((string)row.Tag).StartsWith("__SUBSET__", StringComparison.Ordinal)) continue;
+                        var cells = new System.Collections.Generic.List<string>();
+                        foreach (DataGridViewColumn c in dgv.Columns)
+                        {
+                            if (!c.Visible || c.Name == "Sel") continue;
+                            var v = row.Cells[c.Index].Value;
+                            cells.Add(Csv(v == null ? "" : v.ToString(), sep));
+                        }
+                        sb.AppendLine(string.Join(sep, cells.ToArray()));
+                    }
+
+                    File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
+
+                    if (MessageBox.Show("Đã xuất: " + dlg.FileName + Environment.NewLine + "Mở file ngay?", "Xuất Excel", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                        Process.Start(new ProcessStartInfo(dlg.FileName) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Không xuất được: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static string Csv(string s, string sep)
+        {
+            return SheetBlockPlotLogic.Csv(s, sep, false);
+        }
+
+        private static string Str(DataGridViewRow row, string col)
+        {
+            var v = row.Cells[col].Value;
+            return v == null ? "" : v.ToString();
+        }
+    }
+}
