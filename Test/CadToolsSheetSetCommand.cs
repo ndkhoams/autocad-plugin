@@ -682,6 +682,9 @@ namespace CADtools
             return null;
         }
 
+        // Tam thoi tat ghi file chan doan (log/DSD) ra thu muc output cung PDF.
+        private static bool EnablePublishDiagnostics = false;
+
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
 
@@ -715,24 +718,30 @@ namespace CADtools
                 dsd.ReadDsd(dsdFile);
                 int sheetsAfterRead = CountDsdSheetsAfterRead(dsd, outDir);
 
-                try
+                if (EnablePublishDiagnostics)
                 {
-                    File.AppendAllText(Path.Combine(outDir, "_ssm_publish_diagnostics.log"),
-                        string.Format("[{0:yyyy-MM-dd HH:mm:ss}] dest={1} inMemory={2} afterWrite={3} afterForceNoPrompt={4} afterReadDsd={5}{6}",
-                            DateTime.Now, destPdf, entries.Count, sheetsAfterWrite, sheetsAfterForce, sheetsAfterRead, Environment.NewLine));
+                    try
+                    {
+                        File.AppendAllText(Path.Combine(outDir, "_ssm_publish_diagnostics.log"),
+                            string.Format("[{0:yyyy-MM-dd HH:mm:ss}] dest={1} inMemory={2} afterWrite={3} afterForceNoPrompt={4} afterReadDsd={5}{6}",
+                                DateTime.Now, destPdf, entries.Count, sheetsAfterWrite, sheetsAfterForce, sheetsAfterRead, Environment.NewLine));
+                    }
+                    catch { }
                 }
-                catch { }
 
-                try
+                if (EnablePublishDiagnostics)
                 {
-                    string keptDsd = Path.Combine(outDir, "_ssm_batch_kept.dsd");
-                    File.Copy(dsdFile, keptDsd, true);
-                    var fiKept = new FileInfo(keptDsd);
-                    File.AppendAllText(Path.Combine(outDir, "_ssm_publish_diagnostics.log"),
-                        string.Format("[{0:yyyy-MM-dd HH:mm:ss}] kept DSD: {1} ({2} bytes){3}",
-                            DateTime.Now, keptDsd, fiKept.Length, Environment.NewLine));
+                    try
+                    {
+                        string keptDsd = Path.Combine(outDir, "_ssm_batch_kept.dsd");
+                        File.Copy(dsdFile, keptDsd, true);
+                        var fiKept = new FileInfo(keptDsd);
+                        File.AppendAllText(Path.Combine(outDir, "_ssm_publish_diagnostics.log"),
+                            string.Format("[{0:yyyy-MM-dd HH:mm:ss}] kept DSD: {1} ({2} bytes){3}",
+                                DateTime.Now, keptDsd, fiKept.Length, Environment.NewLine));
+                    }
+                    catch { }
                 }
-                catch { }
 
                 AcadApp.Publisher.PublishExecute(
                 dsd, PlotConfigManager.SetCurrentConfig("DWG To PDF.pc3"));
@@ -740,7 +749,7 @@ namespace CADtools
                 {
                     WritePublishFailureReport(outDir, destPdf, entries, dsdFile,
                         "Publisher completed without creating the destination PDF.");
-                    try { ed.WriteMessage("\n[LỖI publish] Không tạo được PDF: " + destPdf + ". Đã ghi báo cáo DSD trong thư mục output."); } catch { }
+                    try { ed.WriteMessage("\n[LỖI publish] Không tạo được PDF: " + destPdf + "."); } catch { }
                     return false;
                 }
                 return true;
@@ -748,7 +757,7 @@ namespace CADtools
             catch (Exception ex)
             {
                 WritePublishFailureReport(outDir, destPdf, entries, dsdFile, ex.ToString());
-                try { ed.WriteMessage("\n[LỖI publish] " + ex.Message + ". Đã ghi báo cáo DSD trong thư mục output."); } catch { }
+                try { ed.WriteMessage("\n[LỖI publish] " + ex.Message + "."); } catch { }
                 return false;
             }
             finally
@@ -767,6 +776,7 @@ namespace CADtools
             string dsdFile,
             string error)
         {
+            if (!EnablePublishDiagnostics) return;
             try
             {
                 string reportPath = Path.Combine(outputDirectory,
