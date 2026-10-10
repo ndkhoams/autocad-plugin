@@ -181,7 +181,7 @@ namespace CADtools
             Controls.Add(btnBrowse);
 
             // Nut publish chinh nam ngay sau o thu muc
-            btnPrint = new Button { Text = "Publish to PDF", Left = rightEdge - 134, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnPrint = new Button { Text = "Publish to PDF", Left = rightEdge - 134, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
             Controls.Add(btnPrint);
 
@@ -200,7 +200,7 @@ namespace CADtools
             var lblStyle = new Label { Text = "Nét in:", Left = fieldL + 452, Top = 166 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             cbStyle = new ComboBox { Left = fieldL + 514, Top = 164 + dy, Width = 165, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
-            btnPrintOptions = new Button { Text = "In tùy chọn", Left = rightEdge - 118, Top = 163 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = rightEdge - 134, Top = 163 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
@@ -682,6 +682,7 @@ namespace CADtools
             Controls.Add(btnSave); Controls.Add(btnCancel);
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
+            this.Load += (s2, e2) => AlignActionButtonsToIssuePurpose();
             UpdateAllPreviews();
             UpdateSelectionInfo();
         }
@@ -763,6 +764,28 @@ namespace CADtools
         private void AddCol(string name, string header, int width, bool readOnly)
         {
             dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = width, FillWeight = width, ReadOnly = readOnly, SortMode = DataGridViewColumnSortMode.NotSortable });
+        }
+
+        // Can phai 2 nut Publish/In tuy chon theo mep ngoai cua nut IssuePurpose (hang Add Field).
+        // 2 nut dai bang nhau. Chay o Load de FlowLayoutPanel da xep xong kich thuoc nut.
+        private void AlignActionButtonsToIssuePurpose()
+        {
+            try
+            {
+                int targetRight = 0;
+                foreach (Control c in pnlTokens.Controls)
+                {
+                    var b = c as Button;
+                    if (b != null && b.Text == "IssuePurpose") { targetRight = pnlTokens.Left + b.Right; break; }
+                }
+                if (targetRight <= 0) return;
+                const int btnW = 134;
+                btnPrint.Width = btnW;
+                btnPrint.Left = targetRight - btnW;
+                btnPrintOptions.Width = btnW;
+                btnPrintOptions.Left = targetRight - btnW;
+            }
+            catch { }
         }
 
         private void BuildTokenButtons()
