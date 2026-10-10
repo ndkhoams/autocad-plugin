@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CADtools")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e45225a683d799ec8bfafda90a44a00aaeb7ae3b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d052391c698c4449c4dc4aef145b1db5499b08d9")]
 [assembly: System.Reflection.AssemblyProductAttribute("CADtools")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CADtools")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
