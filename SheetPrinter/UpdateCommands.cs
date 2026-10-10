@@ -86,7 +86,7 @@ namespace CADtools
                 var heading = new Label
                 {
                     Dock = DockStyle.Fill,
-                    Text = "SHEET PRINTER - UPDATE",
+                    Text = "SHEET PRINTER - UPDATES",
                     TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
                     Font = new System.Drawing.Font(Font.FontFamily, 16F, System.Drawing.FontStyle.Bold)
                 };
