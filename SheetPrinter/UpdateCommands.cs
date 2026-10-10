@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
-using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Autodesk.AutoCAD.Runtime;
@@ -16,7 +14,8 @@ namespace CADtools
 {
     public class UpdateCommands
     {
-        private const string CommitApiUrl = "https://api.github.com/repos/ndkhoams/autocad-plugin/commits?path=AutoCad_SSP.iso&per_page=1";
+        private const string BuildTimestamp = "20261010-081935";
+        private const string LatestSourceUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/SheetPrinter/UpdateCommands.cs";
         private const string DownloadUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/AutoCad_SSP.iso";
         private static readonly HttpClient Http = CreateHttpClient();
 
@@ -37,48 +36,17 @@ namespace CADtools
 
         internal static DateTime BuildTimeLocal
         {
-            get
-            {
-                string assemblyPath = typeof(UpdateCommands).Assembly.Location;
-                return File.Exists(assemblyPath) ? File.GetLastWriteTime(assemblyPath) : DateTime.MinValue;
-            }
+            get { return DateTime.ParseExact(BuildTimestamp, "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture); }
         }
 
-        private static async Task<DateTimeOffset> GetLatestPackageTimeAsync()
+        private static async Task<DateTime> GetLatestBuildTimeAsync()
         {
-            string json = await Http.GetStringAsync(CommitApiUrl).ConfigureAwait(false);
-            var serializer = new DataContractJsonSerializer(typeof(List<GitHubCommit>));
-            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
-            {
-                var commits = (List<GitHubCommit>)serializer.ReadObject(stream);
-                DateTimeOffset updated;
-                if (commits == null || commits.Count == 0 || commits[0].Commit == null
-                    || commits[0].Commit.Author == null
-                    || !DateTimeOffset.TryParse(commits[0].Commit.Author.Date, out updated))
-                    throw new InvalidDataException("GitHub không trả về thời điểm cập nhật hợp lệ.");
-                return updated;
-            }
-        }
+            string source = await Http.GetStringAsync(LatestSourceUrl).ConfigureAwait(false);
+            Match match = Regex.Match(source, @"private const string BuildTimestamp = ""(?<timestamp>\d{8}-\d{6})"";");
+            if (!match.Success)
+                throw new InvalidDataException("Không tìm thấy timestamp build hợp lệ trong UpdateCommands.cs trên GitHub.");
 
-        [DataContract]
-        private sealed class GitHubCommit
-        {
-            [DataMember(Name = "commit")]
-            public CommitInfo Commit { get; set; }
-        }
-
-        [DataContract]
-        private sealed class CommitInfo
-        {
-            [DataMember(Name = "author")]
-            public CommitAuthor Author { get; set; }
-        }
-
-        [DataContract]
-        private sealed class CommitAuthor
-        {
-            [DataMember(Name = "date")]
-            public string Date { get; set; }
+            return DateTime.ParseExact(match.Groups["timestamp"].Value, "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         }
 
         private sealed class UpdateForm : Form
@@ -139,7 +107,7 @@ namespace CADtools
                 versionLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 versionLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
                 versionLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-                _currentVersion = MakeVersionValue(GetInstalledBuildTime().ToLocalTime().ToString("yyyyMMdd-HHmmss"));
+                _currentVersion = MakeVersionValue(BuildTimeLocal.ToString("yyyyMMdd-HHmmss"));
                 _latestVersion = MakeVersionValue("Chưa kiểm tra");
                 versionLayout.Controls.Add(MakeVersionLabel("Bản dựng hiện tại:"), 0, 0);
                 versionLayout.Controls.Add(_currentVersion, 1, 0);
@@ -212,12 +180,11 @@ namespace CADtools
                 _progress.Style = ProgressBarStyle.Marquee;
                 try
                 {
-                    DateTimeOffset latestTime = await GetLatestPackageTimeAsync();
+                    DateTime latestTime = await GetLatestBuildTimeAsync();
                     if (IsDisposed) return;
 
-                    DateTime localBuildTime = GetInstalledBuildTime();
-                    _latestVersion.Text = latestTime.ToLocalTime().ToString("yyyyMMdd-HHmmss");
-                    _updateAvailable = latestTime.UtcDateTime > localBuildTime;
+                    _latestVersion.Text = latestTime.ToString("yyyyMMdd-HHmmss");
+                    _updateAvailable = latestTime > BuildTimeLocal;
                     _status.Text = _updateAvailable
                         ? "Đã tìm thấy phiên bản mới. Bạn có thể tải file cập nhật."
                         : "Bạn đang dùng phiên bản mới nhất.";
@@ -307,11 +274,6 @@ namespace CADtools
                         }
                     }
                     }
-            }
-
-            private static DateTime GetInstalledBuildTime()
-            {
-                return BuildTimeLocal.ToUniversalTime();
             }
 
             private static Label MakeVersionLabel(string text)
