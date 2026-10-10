@@ -252,7 +252,7 @@ namespace CADtools
 
                     var all = new DsdEntryCollection();
                     var staleSheets = new List<string>();
-                    using (var locator = new LayoutRenamer.LayoutLocator())
+                    using (var locator = new LayoutLocator())
                     foreach (var s in printSheets)
                     {
 
@@ -291,7 +291,7 @@ namespace CADtools
                     return;
                 }
 
-                using (var locator = new LayoutRenamer.LayoutLocator())
+                using (var locator = new LayoutLocator())
                 foreach (var s in printSheets)
                 {
                     if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
@@ -668,7 +668,7 @@ namespace CADtools
         // Resolve tên layout HIỆN TẠI trong DWG (ưu tiên handle đã lưu, rồi theo tên).
         // Trả về null nếu layout không tồn tại -> sheet trỏ sai (DST cũ), nên bỏ qua
         // thay vì để Publisher loại cả job gộp.
-        private static string ResolveLiveLayoutName(LayoutRenamer.LayoutLocator locator, SheetInfo s)
+        private static string ResolveLiveLayoutName(LayoutLocator locator, SheetInfo s)
         {
             if (locator == null || s == null) return null;
             try
