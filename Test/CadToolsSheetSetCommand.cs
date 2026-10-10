@@ -704,6 +704,7 @@ namespace CADtools
                     NoOfCopies = 1,
                     IsHomogeneous = false
                 };
+                EnsureUniqueDsdTitles(entries);
                 dsd.SetDsdEntryCollection(entries);
                 dsd.WriteDsd(dsdFile);
 
@@ -797,6 +798,37 @@ namespace CADtools
         }
 
         // Ep DSD khong hoi ten file: moi token PromptFor* -> FALSE theo tung dong; chen vao [Target] neu thieu.
+        // DSD ghi moi sheet duoi dang section [DWF6Sheet:<Title>]. Title rong hoac trung
+        // nhau lam WriteDsd bo sot/ghi de entries -> thieu sheet khi gop.
+        // Dam bao moi entry co Title khac rong va duy nhat truoc khi publish.
+        private static void EnsureUniqueDsdTitles(DsdEntryCollection entries)
+        {
+            if (entries == null) return;
+            try
+            {
+                var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (DsdEntry e in entries)
+                {
+                    string t = (e.Title ?? "").Trim();
+                    if (t.Length == 0)
+                        t = (e.Layout ?? "").Trim();
+                    if (t.Length == 0)
+                    {
+                        try { t = Path.GetFileNameWithoutExtension(e.DwgName ?? ""); }
+                        catch { t = ""; }
+                        t = (t ?? "").Trim();
+                    }
+                    if (t.Length == 0)
+                        t = "Sheet";
+                    string u = t; int d = 1;
+                    while (!used.Add(u))
+                        u = t + " (" + (++d) + ")";
+                    e.Title = u;
+                }
+            }
+            catch { }
+        }
+
         // Phat hien BOM de giu nguyen encoding goc cua file DSD khi ghi lai.
         // WriteDsd ghi UTF-16 co BOM; neu ghi lai bang Encoding.Default (ANSI, khong BOM)
         // thi ReadDsd se doc sai cac ky tu tieng Viet trong ten layout/duong dan DWG
