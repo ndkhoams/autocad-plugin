@@ -456,7 +456,7 @@ namespace CADtools
                     {
                         UpdateOptionalPlotProgress(progressLabel, progressBar,
                             i * 100 / Math.Max(1, sheets.Count),
-                            "Đang in " + (i + 1) + "/" + sheets.Count + ": " + sheet.Title);
+                            "Đang in " + (i + 1) + "/" + sheets.Count + ": " + SheetLabel(sheet));
 
                         sheetDocument = FindOpenDocument(sheet.DwgPath);
                         if (sheetDocument == null)
@@ -483,7 +483,7 @@ namespace CADtools
                         System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL][LỖI] " + sheet.Title + ": " + ex);
                         UpdateOptionalPlotProgress(progressLabel, progressBar,
                             (i + 1) * 100 / Math.Max(1, sheets.Count),
-                            "Lỗi " + sheet.Title + ": " + ex.Message);
+                            "Lỗi " + SheetLabel(sheet) + ": " + ex.Message);
                         try { if (File.Exists(pdfPath)) File.Delete(pdfPath); } catch { }
                     }
                     finally
@@ -596,6 +596,16 @@ namespace CADtools
         {
             try { return Path.GetFullPath(dwgPath); }
             catch { return dwgPath ?? ""; }
+        }
+
+        private static string SheetLabel(SheetInfo sheet)
+        {
+            string n = (sheet == null || sheet.Number == null) ? "" : sheet.Number.Trim();
+            string t = (sheet == null || sheet.Title == null) ? "" : sheet.Title.Trim();
+            if (n.Length > 0 && t.Length > 0) return n + " - " + t;
+            if (t.Length > 0) return t;
+            if (n.Length > 0) return n;
+            return "(không tên)";
         }
 
         private static Document FindOpenDocument(string dwgPath)
