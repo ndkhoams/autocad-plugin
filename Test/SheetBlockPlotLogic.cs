@@ -707,11 +707,11 @@ namespace CADtools
                             bool layoutPlot = sourcePlotType == Autodesk.AutoCAD.DatabaseServices.PlotType.Layout;
                             bool savedWindowPlot = sourcePlotType == Autodesk.AutoCAD.DatabaseServices.PlotType.Window &&
                                 IsValidPlotWindow(sourcePlotWindow);
-                            Extents2d layoutWindow = layoutPlot
+                            // Luôn in theo Window + Fit: với PlotType.Layout, AutoCAD bỏ qua Fit
+                            // (layout luôn được hiểu là 1:1), nên đổi khổ giấy sẽ không scale.
+                            Extents2d layoutWindow = savedWindowPlot
                                 ? sourcePlotWindow
-                                : savedWindowPlot
-                                    ? sourcePlotWindow
-                                    : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
+                                : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
                             bool layoutLandscape;
                             if (layoutPlot)
                             {
@@ -730,16 +730,9 @@ namespace CADtools
                             bool paperLandscape = IsPaperLandscape(paperMedia);
                             SafeSet("SetPlotRotation", () => validator.SetPlotRotation(settings,
                                 layoutLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000));
-                            if (layoutPlot)
-                            {
-                                SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Layout));
-                            }
-                            else
-                            {
-                                SafeSet("SetPlotWindowArea", () => validator.SetPlotWindowArea(settings, layoutWindow));
-                                SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
-                                SafeSet("SetPlotCentered", () => validator.SetPlotCentered(settings, true));
-                            }
+                            SafeSet("SetPlotWindowArea", () => validator.SetPlotWindowArea(settings, layoutWindow));
+                            SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
+                            SafeSet("SetPlotCentered", () => validator.SetPlotCentered(settings, true));
                             SafeSet("SetUseStandardScale", () => validator.SetUseStandardScale(settings, true));
                             SafeSet("SetStdScaleType", () => validator.SetStdScaleType(settings, StdScaleType.ScaleToFit));
 
@@ -751,7 +744,7 @@ namespace CADtools
                                 + " sourceUnits=" + sourcePaperUnits
                                 + " sourceRotation=" + sourceRotation
                                 + " sourcePlotType=" + sourcePlotType
-                                + " plotAreaMode=" + (layoutPlot ? "Layout" : savedWindowPlot ? "SavedWindow" : "EntityExtents")
+                                + " plotAreaMode=" + (savedWindowPlot ? "SavedWindow" : "EntityExtents")
                                 + " sourceWindow=[" + F(sourcePlotWindow.MinPoint.X) + "," + F(sourcePlotWindow.MinPoint.Y) + "]-["
                                 + F(sourcePlotWindow.MaxPoint.X) + "," + F(sourcePlotWindow.MaxPoint.Y) + "]"
                                 + " window=[" + F(layoutWindow.MinPoint.X) + "," + F(layoutWindow.MinPoint.Y) + "]-["
