@@ -9,6 +9,8 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using System.Windows.Forms.VisualStyles;
+using PlotSettings = Autodesk.AutoCAD.DatabaseServices.PlotSettings;
+using PlotSettingsValidator = Autodesk.AutoCAD.DatabaseServices.PlotSettingsValidator;
 
 namespace CADtools
 {
@@ -16,7 +18,7 @@ namespace CADtools
     // vua xuat Excel — tat ca trong 1 cua so (khong con tach thanh 2 form rieng).
     public class PlotNamingForm : Form
     {
-        public enum SsmAction { None, Print, Save }
+        public enum SsmAction { None, Print, PrintWithOptions, Save }
 
         private readonly System.Collections.Generic.List<SheetInfo> _sheets;
         private readonly System.Collections.Generic.List<string> _customKeys;
@@ -32,7 +34,8 @@ namespace CADtools
         private FlowLayoutPanel pnlTokens;
         private CheckBox chkMerged;
         private DataGridView dgv;
-        private Button btnBrowse, btnPrint, btnSave, btnExport, btnCancel, btnAll, btnNone, btnDelete;
+        private Button btnBrowse, btnPrint, btnPrintOptions, btnSave, btnExport, btnCancel, btnAll, btnNone, btnDelete;
+        private ComboBox cbPaper, cbStyle;
         private Label lblSelInfo;
         private readonly HashSet<SheetInfo> _excluded = new HashSet<SheetInfo>();
         private readonly Dictionary<string, bool> _dwgExistsCache =
@@ -47,6 +50,20 @@ namespace CADtools
         public string Template { get { return txtTemplate.Text; } }
         public string OutputDir { get { return txtOutDir.Text; } }
         public bool Merged { get { return chkMerged.Checked; } }
+        public string PaperMedia
+        {
+            get
+            {
+                switch (Convert.ToString(cbPaper == null ? null : cbPaper.SelectedItem))
+                {
+                    case "A0": return "ISO_full_bleed_A0_(1189.00_x_841.00_MM)";
+                    case "A1": return "ISO_full_bleed_A1_(841.00_x_594.00_MM)";
+                    case "A2": return "ISO_full_bleed_A2_(594.00_x_420.00_MM)";
+                    default: return "ISO_full_bleed_A3_(420.00_x_297.00_MM)";
+                }
+            }
+        }
+        public string PlotStyle { get { return Convert.ToString(cbStyle == null ? null : cbStyle.SelectedItem); } }
         public System.Collections.Generic.List<SheetInfo> DeletedSheets { get; } = new System.Collections.Generic.List<SheetInfo>();
         public System.Collections.Generic.List<SheetInfo> SelectedSheets
         {
@@ -71,7 +88,7 @@ namespace CADtools
                 + UpdateCommands.BuildTimeLocal.ToString("yyyyMMdd-HHmmss") + " ©KhoaND";
             ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
-            MinimumSize = new Size(1000, 640);
+            MinimumSize = new Size(1160, 640);
             Padding = new Padding(6);
 
             // Dịch cụm trên đầu sang phải để không che text bên trái
@@ -152,25 +169,50 @@ namespace CADtools
             {
                 Left = fieldL,
                 Top = 128 + dy,
-                Width = rightEdge - fieldL - 50,
+                Width = 674,
                 Height = 26,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
                 Text = defaultDir ?? ""
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = rightEdge - 44, Top = 127 + dy, Width = 44, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            btnBrowse = new Button { Text = "...", Left = 870, Top = 127 + dy, Width = 34, Height = 28 };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
-            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 166 + dy, Width = 600, Height = 24 };
+            // Nut publish chinh nam ngay sau o thu muc
+            btnPrint = new Button { Text = "Publish to PDF", Left = 971, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
+            Controls.Add(btnPrint);
+
+            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 166 + dy, Width = 280, Height = 24 };
             chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(chkMerged);
 
+            // Hang 2: khu vuc in tuy chon (chuc nang rieng) - du cho rong nen khong bi cat chu
+            var sepOptions = new Label { Left = fieldL + 292, Top = 164 + dy, Width = 3, Height = 28, BorderStyle = BorderStyle.Fixed3D };
+            Controls.Add(sepOptions);
+
+            var lblPaper = new Label { Text = "Khổ giấy:", Left = fieldL + 308, Top = 166 + dy, Width = 78, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbPaper = new ComboBox { Left = fieldL + 386, Top = 164 + dy, Width = 60, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            cbPaper.Items.AddRange(new object[] { "A0", "A1", "A2", "A3" });
+            cbPaper.SelectedItem = "A3";
+            var lblStyle = new Label { Text = "Nét in:", Left = fieldL + 452, Top = 166 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbStyle = new ComboBox { Left = fieldL + 514, Top = 164 + dy, Width = 200, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadPlotStyles();
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 971, Top = 163 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
+            Controls.Add(lblPaper);
+            Controls.Add(cbPaper);
+            Controls.Add(lblStyle);
+            Controls.Add(cbStyle);
+            Controls.Add(btnPrintOptions);
+
+
+
             var lblHint = new Label
             {
-                Text = "Sửa trực tiếp trong bảng (Sheet Number, Sheet Title, Revision, Revision Date, Issue Purpose, CONT, SHT, Layout Name, DWG Path). "
-            + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
+                Text = "Publish to PDF: Xuất PDF theo định dạng sẵn của Sheetset; In tùy chọn: Xuất PDF theo khổ giấy và nét in tùy chọn khác",
                 Left = 20,
                 Top = 196 + dy,
                 Width = rightEdge - 20,
@@ -581,9 +623,9 @@ namespace CADtools
             lblSelInfo = new Label
             {
                 Text = "",
-                Left = 590,
+                Left = 740,
                 Top = btnTop + 5,
-                Width = 260,
+                Width = 250,
                 Height = 22,
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
                 ForeColor = Color.FromArgb(80, 80, 80)
@@ -598,7 +640,7 @@ namespace CADtools
             btnDelete.Click += (s, e) => DeleteCheckedSheets();
             Controls.Add(btnDelete);
 
-            btnSave = new Button { Text = "Lưu Sheet Set", Left = rightEdge - 372, Top = btnTop, Width = 150, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
+            btnSave = new Button { Text = "Lưu Sheet Set", Left = 580, Top = btnTop, Width = 150, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnSave.Click += (s, e) =>
             {
                 try
@@ -635,16 +677,55 @@ namespace CADtools
                 }
             };
 
-            btnPrint = new Button { Text = "In PDF", Left = rightEdge - 214, Top = btnTop, Width = 110, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
-            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
-
             btnCancel = new Button { Text = "Đóng", Left = rightEdge - 96, Top = btnTop, Width = 96, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.Cancel };
 
-            Controls.Add(btnSave); Controls.Add(btnPrint); Controls.Add(btnCancel);
+            Controls.Add(btnSave); Controls.Add(btnCancel);
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
             UpdateAllPreviews();
             UpdateSelectionInfo();
+        }
+
+        private void LoadPlotStyles()
+        {
+            try
+            {
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+                if (doc == null) return;
+
+                using (doc.LockDocument())
+                using (var settings = new PlotSettings(false))
+                {
+                    var validator = PlotSettingsValidator.Current;
+                    try { validator.SetPlotConfigurationName(settings, "DWG To PDF.pc3", null); } catch { }
+                    try { validator.RefreshLists(settings); } catch { }
+
+                    cbStyle.Items.Add("None");
+                    var styles = validator.GetPlotStyleSheetList();
+                    if (styles != null)
+                    {
+                        foreach (string style in styles)
+                            if (!string.IsNullOrWhiteSpace(style)) cbStyle.Items.Add(style);
+                    }
+
+                    int monochromeIndex = -1;
+                    for (int i = 0; i < cbStyle.Items.Count; i++)
+                    {
+                        string style = Convert.ToString(cbStyle.Items[i]);
+                        if (!string.IsNullOrWhiteSpace(style) && style.IndexOf("monochrome.ctb", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            monochromeIndex = i;
+                            break;
+                        }
+                    }
+                    cbStyle.SelectedIndex = monochromeIndex >= 0 ? monochromeIndex : 0;
+                }
+            }
+            catch
+            {
+                if (cbStyle.Items.Count == 0) cbStyle.Items.Add("None");
+                if (cbStyle.SelectedIndex < 0 && cbStyle.Items.Count > 0) cbStyle.SelectedIndex = 0;
+            }
         }
 
         private void ApplyCheck(SheetInfo sheet, bool isChecked)

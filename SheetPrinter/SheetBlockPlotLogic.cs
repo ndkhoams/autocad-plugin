@@ -629,12 +629,15 @@ namespace CADtools
                         using (var settings = new PlotSettings(layout.ModelType))
                         {
                             settings.CopyFrom(layout);
+                            bool layoutLandscape = settings.PlotPaperSize.X >= settings.PlotPaperSize.Y;
                             PlotSettingsValidator validator = PlotSettingsValidator.Current;
                             ConfigurePlotSettings(validator, settings, paperMedia, styleSheet);
                             SafeSet("SetPlotPaperUnits", () => validator.SetPlotPaperUnits(settings, PlotPaperUnit.Millimeters));
+                            bool paperLandscape = IsPaperLandscape(paperMedia);
                             try { validator.SetPlotOrigin(settings, new Point2d(0, 0)); } catch { }
                             try { db.TileMode = isModel; } catch { }
-                            try { validator.SetPlotRotation(settings, ResolvePlotRotation(paperMedia, rectLandscape)); } catch { }
+                            SafeSet("SetPlotRotation", () => validator.SetPlotRotation(settings,
+                                layoutLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000));
 
                             Extents2d normalizedWindow = NormalizePlotWindow(win, isModel);
                             string temporaryViewName = null;
@@ -669,6 +672,198 @@ namespace CADtools
                     try { lm.CurrentLayout = oldLayout; } catch { }
                 }
             }
+        }
+
+        public void PlotLayoutToPdf(string layoutName, string pdfFile, string paperMedia, string styleSheet, string sheetIdentifier, string diagnosticLogPath)
+        {
+            if (string.IsNullOrWhiteSpace(layoutName))
+                throw new ArgumentException("Layout không hợp lệ.", "layoutName");
+            if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
+                throw new InvalidOperationException("Plot is busy");
+
+            using (_doc.LockDocument())
+            {
+                Database db = _doc.Database;
+                LayoutManager layoutManager = LayoutManager.Current;
+                bool oldTileMode = db.TileMode;
+                string oldLayout = layoutManager.CurrentLayout;
+
+                try
+                {
+                    layoutManager.CurrentLayout = layoutName;
+                    using (Transaction transaction = db.TransactionManager.StartTransaction())
+                    {
+                        ObjectId layoutId = layoutManager.GetLayoutId(layoutName);
+                        Layout layout = (Layout)transaction.GetObject(layoutId, OpenMode.ForRead);
+                        using (var settings = new PlotSettings(layout.ModelType))
+                        {
+                            settings.CopyFrom(layout);
+                            string sourceMedia = settings.CanonicalMediaName;
+                            Point2d sourcePaperSize = settings.PlotPaperSize;
+                            PlotPaperUnit sourcePaperUnits = settings.PlotPaperUnits;
+                            PlotRotation sourceRotation = settings.PlotRotation;
+                            Autodesk.AutoCAD.DatabaseServices.PlotType sourcePlotType = settings.PlotType;
+                            Extents2d sourcePlotWindow = settings.PlotWindowArea;
+                            bool layoutPlot = sourcePlotType == Autodesk.AutoCAD.DatabaseServices.PlotType.Layout;
+                            bool savedWindowPlot = sourcePlotType == Autodesk.AutoCAD.DatabaseServices.PlotType.Window &&
+                                IsValidPlotWindow(sourcePlotWindow);
+                            // Luôn in theo Window + Fit: với PlotType.Layout, AutoCAD bỏ qua Fit
+                            // (layout luôn được hiểu là 1:1), nên đổi khổ giấy sẽ không scale.
+                            // Với layout: window = khung giấy (paper rect) — tương đương PlotType.Layout
+                            // nhưng cho phép Fit. Không dùng union extents vì entity lạ ngoài khung
+                            // sẽ làm Fit thu nhỏ sai.
+                            Extents2d paperRect = GetPaperRect(sourcePaperSize, sourceRotation);
+                            Extents2d layoutWindow = savedWindowPlot
+                                ? sourcePlotWindow
+                                : layoutPlot && IsValidPlotWindow(paperRect)
+                                    ? paperRect
+                                    : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
+                            bool layoutLandscape;
+                            if (layoutPlot)
+                            {
+                                bool sourceQuarterTurn = sourceRotation == PlotRotation.Degrees090 ||
+                                    sourceRotation == PlotRotation.Degrees270;
+                                layoutLandscape = (sourcePaperSize.X >= sourcePaperSize.Y) != sourceQuarterTurn;
+                            }
+                            else
+                            {
+                                layoutLandscape = layoutWindow.MaxPoint.X - layoutWindow.MinPoint.X >=
+                                    layoutWindow.MaxPoint.Y - layoutWindow.MinPoint.Y;
+                            }
+                            PlotSettingsValidator validator = PlotSettingsValidator.Current;
+                            ConfigurePlotSettings(validator, settings, paperMedia, styleSheet);
+                            SafeSet("SetPlotPaperUnits", () => validator.SetPlotPaperUnits(settings, PlotPaperUnit.Millimeters));
+                            bool paperLandscape = IsPaperLandscape(paperMedia);
+                            SafeSet("SetPlotRotation", () => validator.SetPlotRotation(settings,
+                                layoutLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000));
+                            SafeSet("SetPlotWindowArea", () => validator.SetPlotWindowArea(settings, layoutWindow));
+                            SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
+                            SafeSet("SetPlotCentered", () => validator.SetPlotCentered(settings, true));
+                            SafeSet("SetUseStandardScale", () => validator.SetUseStandardScale(settings, true));
+                            SafeSet("SetStdScaleType", () => validator.SetStdScaleType(settings, StdScaleType.ScaleToFit));
+
+                            string diagnostic = "[SSP-PLOT-DIAG] sheet=" + (sheetIdentifier ?? "")
+                                + " dwg=" + db.Filename
+                                + " layout=" + layoutName
+                                + " sourceMedia=" + sourceMedia
+                                + " sourcePaper=" + F(sourcePaperSize.X) + "x" + F(sourcePaperSize.Y)
+                                + " sourceUnits=" + sourcePaperUnits
+                                + " sourceRotation=" + sourceRotation
+                                + " sourcePlotType=" + sourcePlotType
+                                + " plotAreaMode=" + (savedWindowPlot ? "SavedWindow" : "EntityExtents")
+                                + " sourceWindow=[" + F(sourcePlotWindow.MinPoint.X) + "," + F(sourcePlotWindow.MinPoint.Y) + "]-["
+                                + F(sourcePlotWindow.MaxPoint.X) + "," + F(sourcePlotWindow.MaxPoint.Y) + "]"
+                                + " window=[" + F(layoutWindow.MinPoint.X) + "," + F(layoutWindow.MinPoint.Y) + "]-["
+                                + F(layoutWindow.MaxPoint.X) + "," + F(layoutWindow.MaxPoint.Y) + "]"
+                                + " windowSize=" + F(layoutWindow.MaxPoint.X - layoutWindow.MinPoint.X) + "x"
+                                + F(layoutWindow.MaxPoint.Y - layoutWindow.MinPoint.Y)
+                                + " targetMedia=" + settings.CanonicalMediaName
+                                + " targetPaper=" + F(settings.PlotPaperSize.X) + "x" + F(settings.PlotPaperSize.Y)
+                                + " plotRotation=" + settings.PlotRotation
+                                + " standardScale=" + settings.StdScaleType;
+                            Log(diagnostic);
+                            WritePlotDiagnostic(diagnosticLogPath, diagnostic);
+
+                            var plotInfo = new PlotInfo { Layout = layoutId, OverrideSettings = settings };
+                            new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled }.Validate(plotInfo);
+                            ExecutePlot(plotInfo, pdfFile);
+                            transaction.Commit();
+                        }
+                    }
+                }
+                finally
+                {
+                    try { db.TileMode = oldTileMode; } catch { }
+                    try { layoutManager.CurrentLayout = oldLayout; } catch { }
+                }
+            }
+        }
+
+        private static bool IsValidPlotWindow(Extents2d window)
+        {
+            return IsFinite(window.MinPoint.X) && IsFinite(window.MinPoint.Y) &&
+                IsFinite(window.MaxPoint.X) && IsFinite(window.MaxPoint.Y) &&
+                window.MaxPoint.X > window.MinPoint.X && window.MaxPoint.Y > window.MinPoint.Y;
+        }
+
+        private static void WritePlotDiagnostic(string path, string message)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path)) return;
+                File.AppendAllText(path, message + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("[SSP-PLOT-DIAG] Could not write diagnostic file: " + ex);
+            }
+        }
+
+        // Khung giấy của layout trong tọa độ paper space: (0,0) là góc dưới-trái tờ giấy.
+        private static Extents2d GetPaperRect(Point2d paperSize, PlotRotation rotation)
+        {
+            bool quarterTurn = rotation == PlotRotation.Degrees090 || rotation == PlotRotation.Degrees270;
+            double w = quarterTurn ? paperSize.Y : paperSize.X;
+            double h = quarterTurn ? paperSize.X : paperSize.Y;
+            return new Extents2d(new Point2d(0, 0), new Point2d(w, h));
+        }
+
+        private static Extents2d GetLayoutExtents(Transaction transaction, Layout layout, Point2d fallbackPaperSize)
+        {
+            var record = (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+
+            bool hasExtents = false;
+            double minX = 0, minY = 0, maxX = 0, maxY = 0;
+
+            foreach (ObjectId id in record)
+            {
+                var entity = transaction.GetObject(id, OpenMode.ForRead) as Entity;
+                if (entity == null) continue;
+
+                try
+                {
+                    Extents3d extents = entity.GeometricExtents;
+                    if (!IsFinite(extents.MinPoint.X) || !IsFinite(extents.MinPoint.Y) ||
+                        !IsFinite(extents.MaxPoint.X) || !IsFinite(extents.MaxPoint.Y))
+                        continue;
+
+                    if (!hasExtents)
+                    {
+                        minX = extents.MinPoint.X;
+                        minY = extents.MinPoint.Y;
+                        maxX = extents.MaxPoint.X;
+                        maxY = extents.MaxPoint.Y;
+                        hasExtents = true;
+                    }
+                    else
+                    {
+                        minX = Math.Min(minX, extents.MinPoint.X);
+                        minY = Math.Min(minY, extents.MinPoint.Y);
+                        maxX = Math.Max(maxX, extents.MaxPoint.X);
+                        maxY = Math.Max(maxY, extents.MaxPoint.Y);
+                    }
+                }
+                catch { }
+            }
+
+            if (!hasExtents || maxX <= minX || maxY <= minY)
+                return new Extents2d(Point2d.Origin, new Point2d(fallbackPaperSize.X, fallbackPaperSize.Y));
+
+            return new Extents2d(new Point2d(minX, minY), new Point2d(maxX, maxY));
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool IsPaperLandscape(string paperMedia)
+        {
+            Match match = PaperSizeRegex.Match(paperMedia ?? "");
+            if (!match.Success) return true;
+            double width = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            double height = double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+            return width >= height;
         }
 
         private void ExecutePlot(PlotInfo plotInfo, string pdfFile)
