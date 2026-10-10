@@ -14,7 +14,7 @@ namespace CADtools
 {
     public class UpdateCommands
     {
-        private const string BuildTimestamp = "20261011-024149";
+        private const string BuildTimestamp = "20261011-025203";
         private const string LatestSourceUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/SheetPrinter/UpdateCommands.cs";
         private const string DownloadUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/AutoCad_SSP.iso";
         private static readonly HttpClient Http = CreateHttpClient();
