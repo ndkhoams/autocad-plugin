@@ -169,19 +169,19 @@ namespace CADtools
             {
                 Left = fieldL,
                 Top = 128 + dy,
-                Width = 380,
+                Width = 440,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left,
                 Text = defaultDir ?? ""
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = fieldL + 386, Top = 127 + dy, Width = 34, Height = 28 };
+            btnBrowse = new Button { Text = "...", Left = fieldL + 446, Top = 127 + dy, Width = 34, Height = 28 };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
             // Nut publish chinh nam ngay sau o thu muc
-            btnPrint = new Button { Text = "Publish to PDF", Left = fieldL + 426, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint = new Button { Text = "Publish to PDF", Left = rightEdge - 134, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
             btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
             Controls.Add(btnPrint);
 
@@ -200,7 +200,7 @@ namespace CADtools
             var lblStyle = new Label { Text = "Nét in:", Left = fieldL + 452, Top = 166 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             cbStyle = new ComboBox { Left = fieldL + 514, Top = 164 + dy, Width = 165, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
-            btnPrintOptions = new Button { Text = "In tùy chọn", Left = fieldL + 685, Top = 163 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = rightEdge - 118, Top = 163 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Right };
             btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
@@ -212,8 +212,7 @@ namespace CADtools
 
             var lblHint = new Label
             {
-                Text = "Publish to PDF: in các sheet đang tích trong bảng ra file PDF (đánh dấu \"Gộp tất cả vào 1 file PDF\" để gộp chung 1 file). "
-            + "In tùy chọn: in từng sheet theo khổ giấy và nét in đã chọn, tự căn khung bản vẽ vừa khít khổ giấy.",
+                Text = "Publish to PDF: Xuất PDF theo định dạng sẵn của Sheetset; In tùy chọn: Xuất PDF theo khổ giấy và nét in tùy chọn khác",
                 Left = 20,
                 Top = 196 + dy,
                 Width = rightEdge - 20,
