@@ -406,6 +406,17 @@ namespace CADtools
                 progressForm.Controls.Add(progressBar);
                 AcadApp.ShowModelessDialog(progressForm);
 
+                // Tiet kiem RAM: tim sheet CUOI CUNG dung moi DWG de dong file ngay khi xong,
+                // thay vi mo tat ca roi dong mot luc o cuoi.
+                var lastUseIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (int k = 0; k < sheets.Count; k++)
+                {
+                    SheetInfo sk = sheets[k];
+                    if (sk == null || string.IsNullOrWhiteSpace(sk.DwgPath) || !File.Exists(sk.DwgPath)) continue;
+                    if (string.IsNullOrWhiteSpace(sk.LayoutName)) continue;
+                    lastUseIndex[NormalizeDwgKey(sk.DwgPath)] = k;
+                }
+
                 int successCount = 0;
                 int failureCount = 0;
                 for (int i = 0; i < sheets.Count; i++)
@@ -439,17 +450,20 @@ namespace CADtools
                         pdfPath = Path.Combine(outputDirectory, SsmNaming.EnsurePdf(name));
                     }
 
+                    Document sheetDocument = null;
+                    bool weOpenedThis = false;
                     try
                     {
                         UpdateOptionalPlotProgress(progressLabel, progressBar,
                             i * 100 / Math.Max(1, sheets.Count),
                             "Đang in " + (i + 1) + "/" + sheets.Count + ": " + sheet.Title);
 
-                        Document sheetDocument = FindOpenDocument(sheet.DwgPath);
+                        sheetDocument = FindOpenDocument(sheet.DwgPath);
                         if (sheetDocument == null)
                         {
                             sheetDocument = AcadApp.DocumentManager.Open(sheet.DwgPath, false);
                             openedDocuments.Add(sheetDocument);
+                            weOpenedThis = true;
                         }
 
                         AcadApp.DocumentManager.MdiActiveDocument = sheetDocument;
@@ -471,6 +485,28 @@ namespace CADtools
                             (i + 1) * 100 / Math.Max(1, sheets.Count),
                             "Lỗi " + sheet.Title + ": " + ex.Message);
                         try { if (File.Exists(pdfPath)) File.Delete(pdfPath); } catch { }
+                    }
+                    finally
+                    {
+                        // Dong DWG ngay khi da in xong sheet cuoi cung cua no de giam RAM.
+                        // Chi dong file do plugin tu mo; khong dong file user dang mo san.
+                        // DWG co nhieu layout van giu mo cho den khi in xong layout cuoi.
+                        try
+                        {
+                            if (weOpenedThis && sheetDocument != null)
+                            {
+                                int lastIdx;
+                                if (lastUseIndex.TryGetValue(NormalizeDwgKey(sheet.DwgPath), out lastIdx) && lastIdx == i)
+                                {
+                                    if (openedDocuments.Remove(sheetDocument))
+                                    {
+                                        try { sheetDocument.CloseAndDiscard(); } catch { }
+                                        System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL] Đã đóng DWG sau sheet cuối: " + sheet.DwgPath);
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
                     }
                 }
 
@@ -554,6 +590,12 @@ namespace CADtools
                 System.Windows.Forms.Application.DoEvents();
             }
             catch { }
+        }
+
+        private static string NormalizeDwgKey(string dwgPath)
+        {
+            try { return Path.GetFullPath(dwgPath); }
+            catch { return dwgPath ?? ""; }
         }
 
         private static Document FindOpenDocument(string dwgPath)
