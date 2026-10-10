@@ -708,8 +708,19 @@ namespace CADtools
                 dsd.WriteDsd(dsdFile);
 
                 var enc = Encoding.Default;
+                int sheetsAfterWrite = CountDsdSheetSections(dsdFile);
                 ForceNoPrompt(dsdFile, enc);
+                int sheetsAfterForce = CountDsdSheetSections(dsdFile);
                 dsd.ReadDsd(dsdFile);
+                int sheetsAfterRead = CountDsdSheetsAfterRead(dsd, outDir);
+
+                try
+                {
+                    File.AppendAllText(Path.Combine(outDir, "_ssm_publish_diagnostics.log"),
+                        string.Format("[{0:yyyy-MM-dd HH:mm:ss}] dest={1} inMemory={2} afterWrite={3} afterForceNoPrompt={4} afterReadDsd={5}{6}",
+                            DateTime.Now, destPdf, entries.Count, sheetsAfterWrite, sheetsAfterForce, sheetsAfterRead, Environment.NewLine));
+                }
+                catch { }
 
                 AcadApp.Publisher.PublishExecute(
                 dsd, PlotConfigManager.SetCurrentConfig("DWG To PDF.pc3"));
@@ -775,13 +786,66 @@ namespace CADtools
         }
 
         // Ep DSD khong hoi ten file: moi token PromptFor* -> FALSE theo tung dong; chen vao [Target] neu thieu.
+        // Phat hien BOM de giu nguyen encoding goc cua file DSD khi ghi lai.
+        // WriteDsd ghi UTF-16 co BOM; neu ghi lai bang Encoding.Default (ANSI, khong BOM)
+        // thi ReadDsd se doc sai cac ky tu tieng Viet trong ten layout/duong dan DWG
+        // -> Publisher loai sheet ("Layout not found" / thieu sheet khi gop).
+        private static Encoding DetectFileEncoding(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    byte[] bom = new byte[4];
+                    int n = fs.Read(bom, 0, 4);
+                    if (n >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF)
+                        return new UTF8Encoding(true);
+                    if (n >= 2 && bom[0] == 0xFF && bom[1] == 0xFE)
+                        return new UnicodeEncoding(false, true);
+                    if (n >= 2 && bom[0] == 0xFE && bom[1] == 0xFF)
+                        return new UnicodeEncoding(true, true);
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private static int CountDsdSheetSections(string dsdFile)
+        {
+            try
+            {
+                int n = 0;
+                foreach (var line in File.ReadLines(dsdFile))
+                {
+                    if (line.Trim().StartsWith("[Sheet", StringComparison.OrdinalIgnoreCase))
+                        n++;
+                }
+                return n;
+            }
+            catch { return -1; }
+        }
+
+        private static int CountDsdSheetsAfterRead(DsdData dsd, string outDir)
+        {
+            string tmp = null;
+            try
+            {
+                tmp = Path.Combine(outDir, "_ssm_dsd_reread_check.dsd");
+                dsd.WriteDsd(tmp);
+                return CountDsdSheetSections(tmp);
+            }
+            catch { return -1; }
+            finally { try { if (tmp != null && File.Exists(tmp)) File.Delete(tmp); } catch { } }
+        }
+
         private static void ForceNoPrompt(string dsdFile, Encoding enc)
         {
 
             try
             {
 
-                var lines = new System.Collections.Generic.List<string>(File.ReadAllLines(dsdFile, enc));
+                Encoding actualEnc = DetectFileEncoding(dsdFile) ?? enc;
+                var lines = new System.Collections.Generic.List<string>(File.ReadAllLines(dsdFile, actualEnc));
                 bool foundDwg = false; int targetIdx = -1;
                 for (int i = 0; i < lines.Count; i++)
                 {
@@ -800,7 +864,7 @@ namespace CADtools
                 }
                 if (!foundDwg && targetIdx >= 0)
                     lines.Insert(targetIdx + 1, "PromptForDwgName=FALSE");
-                File.WriteAllLines(dsdFile, lines, enc);
+                File.WriteAllLines(dsdFile, lines, actualEnc);
             }
             catch { }
         }
