@@ -169,19 +169,19 @@ namespace CADtools
             {
                 Left = fieldL,
                 Top = 128 + dy,
-                Width = 350,
+                Width = 348,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left,
                 Text = defaultDir ?? ""
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = fieldL + 326, Top = 127 + dy, Width = 34, Height = 28 };
+            btnBrowse = new Button { Text = "...", Left = fieldL + 354, Top = 127 + dy, Width = 34, Height = 28 };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
             // Nut publish chinh nam ngay sau o thu muc
-            btnPrint = new Button { Text = "Publish to PDF", Left = fieldL + 368, Top = 127 + dy, Width = 122, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint = new Button { Text = "Publish to PDF", Left = fieldL + 394, Top = 127 + dy, Width = 120, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
             Controls.Add(btnPrint);
 
@@ -190,17 +190,17 @@ namespace CADtools
             Controls.Add(chkMerged);
 
             // Khu vuc in tuy chon: tach rieng bang khoang cach + duong ke doc de de nhan biet
-            var sepOptions = new Label { Left = 706, Top = 128 + dy, Width = 3, Height = 28, BorderStyle = BorderStyle.Fixed3D };
+            var sepOptions = new Label { Left = fieldL + 522, Top = 128 + dy, Width = 3, Height = 28, BorderStyle = BorderStyle.Fixed3D };
             Controls.Add(sepOptions);
 
-            var lblPaper = new Label { Text = "Khổ giấy:", Left = 722, Top = 130 + dy, Width = 78, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbPaper = new ComboBox { Left = 800, Top = 128 + dy, Width = 58, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblPaper = new Label { Text = "Khổ giấy:", Left = fieldL + 533, Top = 130 + dy, Width = 72, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbPaper = new ComboBox { Left = fieldL + 609, Top = 128 + dy, Width = 58, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             cbPaper.Items.AddRange(new object[] { "A0", "A1", "A2", "A3" });
             cbPaper.SelectedItem = "A3";
-            var lblStyle = new Label { Text = "Nét in:", Left = 864, Top = 130 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbStyle = new ComboBox { Left = 926, Top = 128 + dy, Width = 128, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblStyle = new Label { Text = "Nét in:", Left = fieldL + 673, Top = 130 + dy, Width = 60, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbStyle = new ComboBox { Left = fieldL + 737, Top = 128 + dy, Width = 138, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
-            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 1060, Top = 128 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = fieldL + 881, Top = 128 + dy, Width = 109, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
