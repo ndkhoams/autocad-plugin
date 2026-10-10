@@ -176,30 +176,42 @@ namespace CADtools
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = fieldL + 356, Top = 127 + dy, Width = 34, Height = 28 };
+            btnBrowse = new Button { Text = "...", Left = fieldL + 326, Top = 127 + dy, Width = 34, Height = 28 };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
+
+            // Nut publish chinh nam ngay sau o thu muc
+            btnPrint = new Button { Text = "Publish to PDF", Left = fieldL + 368, Top = 127 + dy, Width = 122, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
+            Controls.Add(btnPrint);
 
             chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 166 + dy, Width = 600, Height = 24 };
             chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(chkMerged);
 
-            var lblPaper = new Label { Text = "Khổ giấy:", Left = 594, Top = 130 + dy, Width = 50, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbPaper = new ComboBox { Left = 644, Top = 128 + dy, Width = 58, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            // Khu vuc in tuy chon: tach rieng bang khoang cach + duong ke doc de de nhan biet
+            var sepOptions = new Label { Left = 706, Top = 128 + dy, Width = 3, Height = 28, BorderStyle = BorderStyle.Fixed3D };
+            Controls.Add(sepOptions);
+
+            var lblPaper = new Label { Text = "Khổ giấy:", Left = 722, Top = 130 + dy, Width = 78, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbPaper = new ComboBox { Left = 800, Top = 128 + dy, Width = 58, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             cbPaper.Items.AddRange(new object[] { "A0", "A1", "A2", "A3" });
             cbPaper.SelectedItem = "A3";
-            var lblStyle = new Label { Text = "Nét in:", Left = 708, Top = 130 + dy, Width = 42, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbStyle = new ComboBox { Left = 750, Top = 128 + dy, Width = 150, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblStyle = new Label { Text = "Nét in:", Left = 864, Top = 130 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbStyle = new ComboBox { Left = 926, Top = 128 + dy, Width = 128, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 1060, Top = 128 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
             Controls.Add(lblStyle);
             Controls.Add(cbStyle);
+            Controls.Add(btnPrintOptions);
 
             var lblHint = new Label
             {
                 Text = "Sửa trực tiếp trong bảng (Sheet Number, Sheet Title, Revision, Revision Date, Issue Purpose, CONT, SHT, Layout Name, DWG Path). "
-            + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"In PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
+            + "Giữ Shift rồi tích để chọn/bỏ cả dải. Nút \"Publish to PDF\" chỉ in sheet đang tích; nút \"Lưu Sheet Set\" ghi thay đổi ngược vào .dst.",
                 Left = 20,
                 Top = 196 + dy,
                 Width = rightEdge - 20,
@@ -664,15 +676,9 @@ namespace CADtools
                 }
             };
 
-            btnPrint = new Button { Text = "In PDF", Left = 1038, Top = 128 + dy, Width = 86, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
-            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
-
-            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 914, Top = 128 + dy, Width = 118, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
-            btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
-
             btnCancel = new Button { Text = "Đóng", Left = rightEdge - 96, Top = btnTop, Width = 96, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.Cancel };
 
-            Controls.Add(btnSave); Controls.Add(btnPrintOptions); Controls.Add(btnPrint); Controls.Add(btnCancel);
+            Controls.Add(btnSave); Controls.Add(btnCancel);
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
             UpdateAllPreviews();
