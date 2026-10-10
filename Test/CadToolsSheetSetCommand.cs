@@ -251,6 +251,8 @@ namespace CADtools
                 {
 
                     var all = new DsdEntryCollection();
+                    var staleSheets = new List<string>();
+                    using (var locator = new LayoutRenamer.LayoutLocator())
                     foreach (var s in printSheets)
                     {
 
@@ -260,8 +262,23 @@ namespace CADtools
                         if (string.IsNullOrWhiteSpace(s.LayoutName))
                         { ed.WriteMessage("\nBỏ qua (sheet không có Layout): " + s.Title); continue; }
 
+                        // Kiem tra layout co that trong DWG khong (uu tien handle, roi theo ten).
+                        // DST cu co the luu ten layout da doi ten/xoa -> Publisher se loai khoi job.
+                        string liveLayout = ResolveLiveLayoutName(locator, s);
+                        if (liveLayout == null)
+                        {
+                            staleSheets.Add(s.Title + " [DWG: " + s.DwgPath + " | Layout: '" + s.LayoutName + "']");
+                            continue;
+                        }
+
                         // Giữ nguyên thứ tự Sheet Set; Publisher tự nạp DWG từ từng DSD entry.
-                        all.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
+                        all.Add(new DsdEntry { DwgName = s.DwgPath, Layout = liveLayout, Title = s.Title, Nps = "" });
+                    }
+                    if (staleSheets.Count > 0)
+                    {
+                        ed.WriteMessage("\n[CẢNH BÁO] Bỏ qua {0} sheet vì không tìm thấy layout trong DWG (tên trong sheet set đã cũ hoặc file lỗi):", staleSheets.Count);
+                        foreach (var t in staleSheets) { try { ed.WriteMessage("\n  - " + t); } catch { } }
+                        ed.WriteMessage("\n(Hãy mở Sheet Set Manager để link lại hoặc xóa các sheet này.)");
                     }
                     if (all.Count == 0) { ed.WriteMessage("\nKhông có sheet hợp lệ để in."); return; }
 
@@ -274,10 +291,15 @@ namespace CADtools
                     return;
                 }
 
+                using (var locator = new LayoutRenamer.LayoutLocator())
                 foreach (var s in printSheets)
                 {
                     if (string.IsNullOrEmpty(s.DwgPath) || !File.Exists(s.DwgPath))
                     { ed.WriteMessage("\nBỏ qua (không tìm thấy DWG): " + s.Title); continue; }
+
+                    string liveLayout = ResolveLiveLayoutName(locator, s);
+                    if (liveLayout == null)
+                    { ed.WriteMessage("\n[BỎ QUA] " + s.Title + ": không tìm thấy layout '" + s.LayoutName + "' trong DWG (tên trong sheet set đã cũ)."); continue; }
 
                     string name = SsmNaming.SanitizeFile(SsmNaming.Resolve(template, s, false));
                     if (string.IsNullOrWhiteSpace(name)) name = s.LayoutName;
@@ -286,7 +308,7 @@ namespace CADtools
                     string file = Path.Combine(outDir, SsmNaming.EnsurePdf(name));
 
                     var one = new DsdEntryCollection();
-                    one.Add(new DsdEntry { DwgName = s.DwgPath, Layout = s.LayoutName, Title = s.Title, Nps = "" });
+                    one.Add(new DsdEntry { DwgName = s.DwgPath, Layout = liveLayout, Title = s.Title, Nps = "" });
 
                     if (PublishToPdf(one, file, outDir, SheetType.MultiPdf, ed))
                     {
@@ -643,6 +665,23 @@ namespace CADtools
         }
 
         // Publish 1 hoac nhieu DsdEntry ra PDF. BACKGROUNDPLOT=0 (dong bo) + FILEDIA=0 + ForceNoPrompt.
+        // Resolve tên layout HIỆN TẠI trong DWG (ưu tiên handle đã lưu, rồi theo tên).
+        // Trả về null nếu layout không tồn tại -> sheet trỏ sai (DST cũ), nên bỏ qua
+        // thay vì để Publisher loại cả job gộp.
+        private static string ResolveLiveLayoutName(LayoutRenamer.LayoutLocator locator, SheetInfo s)
+        {
+            if (locator == null || s == null) return null;
+            try
+            {
+                string liveName, liveHandle;
+                if (locator.Resolve(s.DwgPath, s.LayoutHandle, s.LayoutName, out liveName, out liveHandle)
+                    && !string.IsNullOrWhiteSpace(liveName))
+                    return liveName;
+            }
+            catch { }
+            return null;
+        }
+
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
 
