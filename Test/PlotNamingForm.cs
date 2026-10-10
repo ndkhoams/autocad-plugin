@@ -169,19 +169,19 @@ namespace CADtools
             {
                 Left = fieldL,
                 Top = 128 + dy,
-                Width = 440,
+                Width = 674,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left,
                 Text = defaultDir ?? ""
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = fieldL + 446, Top = 127 + dy, Width = 34, Height = 28 };
+            btnBrowse = new Button { Text = "...", Left = 870, Top = 127 + dy, Width = 34, Height = 28 };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
             // Nut publish chinh nam ngay sau o thu muc
-            btnPrint = new Button { Text = "Publish to PDF", Left = rightEdge - 134, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint = new Button { Text = "Publish to PDF", Left = 971, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
             Controls.Add(btnPrint);
 
@@ -198,9 +198,9 @@ namespace CADtools
             cbPaper.Items.AddRange(new object[] { "A0", "A1", "A2", "A3" });
             cbPaper.SelectedItem = "A3";
             var lblStyle = new Label { Text = "Nét in:", Left = fieldL + 452, Top = 166 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbStyle = new ComboBox { Left = fieldL + 514, Top = 164 + dy, Width = 165, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            cbStyle = new ComboBox { Left = fieldL + 514, Top = 164 + dy, Width = 200, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
-            btnPrintOptions = new Button { Text = "In tùy chọn", Left = rightEdge - 134, Top = 163 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 971, Top = 163 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
@@ -682,7 +682,6 @@ namespace CADtools
             Controls.Add(btnSave); Controls.Add(btnCancel);
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
-            this.Shown += (s2, e2) => AlignActionButtonsToIssuePurpose();
             UpdateAllPreviews();
             UpdateSelectionInfo();
         }
@@ -764,35 +763,6 @@ namespace CADtools
         private void AddCol(string name, string header, int width, bool readOnly)
         {
             dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = width, FillWeight = width, ReadOnly = readOnly, SortMode = DataGridViewColumnSortMode.NotSortable });
-        }
-
-        // Can phai 2 nut Publish/In tuy chon theo mep ngoai cua nut IssuePurpose (hang Add Field).
-        // 2 nut dai bang nhau. Chay o Load de FlowLayoutPanel da xep xong kich thuoc nut.
-        private void AlignActionButtonsToIssuePurpose()
-        {
-            try
-            {
-                pnlTokens.PerformLayout();
-                int targetRight = 0;
-                int fallbackRight = 0;
-                foreach (Control c in pnlTokens.Controls)
-                {
-                    var b = c as Button;
-                    if (b == null) continue;
-                    int r = pnlTokens.Left + b.Right;
-                    if (r > fallbackRight) fallbackRight = r;
-                    if (b.Text == "IssuePurpose") { targetRight = r; break; }
-                }
-                if (targetRight <= 0) targetRight = fallbackRight;
-                if (targetRight < 500 || targetRight > 1150) targetRight = 1070; // du phong: dam bao nut luon hien thi
-                if (targetRight <= 0) return;
-                const int btnW = 134;
-                btnPrint.Width = btnW;
-                btnPrint.Left = targetRight - btnW;
-                btnPrintOptions.Width = btnW;
-                btnPrintOptions.Left = targetRight - btnW;
-            }
-            catch { }
         }
 
         private void BuildTokenButtons()
