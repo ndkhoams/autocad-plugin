@@ -722,6 +722,17 @@ namespace CADtools
                 }
                 catch { }
 
+                try
+                {
+                    string keptDsd = Path.Combine(outDir, "_ssm_batch_kept.dsd");
+                    File.Copy(dsdFile, keptDsd, true);
+                    var fiKept = new FileInfo(keptDsd);
+                    File.AppendAllText(Path.Combine(outDir, "_ssm_publish_diagnostics.log"),
+                        string.Format("[{0:yyyy-MM-dd HH:mm:ss}] kept DSD: {1} ({2} bytes){3}",
+                            DateTime.Now, keptDsd, fiKept.Length, Environment.NewLine));
+                }
+                catch { }
+
                 AcadApp.Publisher.PublishExecute(
                 dsd, PlotConfigManager.SetCurrentConfig("DWG To PDF.pc3"));
                 if (!File.Exists(destPdf))
