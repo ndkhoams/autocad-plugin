@@ -682,7 +682,7 @@ namespace CADtools
             Controls.Add(btnSave); Controls.Add(btnCancel);
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
-            this.Load += (s2, e2) => AlignActionButtonsToIssuePurpose();
+            this.Shown += (s2, e2) => AlignActionButtonsToIssuePurpose();
             UpdateAllPreviews();
             UpdateSelectionInfo();
         }
@@ -772,12 +772,19 @@ namespace CADtools
         {
             try
             {
+                pnlTokens.PerformLayout();
                 int targetRight = 0;
+                int fallbackRight = 0;
                 foreach (Control c in pnlTokens.Controls)
                 {
                     var b = c as Button;
-                    if (b != null && b.Text == "IssuePurpose") { targetRight = pnlTokens.Left + b.Right; break; }
+                    if (b == null) continue;
+                    int r = pnlTokens.Left + b.Right;
+                    if (r > fallbackRight) fallbackRight = r;
+                    if (b.Text == "IssuePurpose") { targetRight = r; break; }
                 }
+                if (targetRight <= 0) targetRight = fallbackRight;
+                if (targetRight < 500 || targetRight > 1150) targetRight = 1070; // du phong: dam bao nut luon hien thi
                 if (targetRight <= 0) return;
                 const int btnW = 134;
                 btnPrint.Width = btnW;
