@@ -709,9 +709,15 @@ namespace CADtools
                                 IsValidPlotWindow(sourcePlotWindow);
                             // Luôn in theo Window + Fit: với PlotType.Layout, AutoCAD bỏ qua Fit
                             // (layout luôn được hiểu là 1:1), nên đổi khổ giấy sẽ không scale.
+                            // Với layout: window = khung giấy (paper rect) — tương đương PlotType.Layout
+                            // nhưng cho phép Fit. Không dùng union extents vì entity lạ ngoài khung
+                            // sẽ làm Fit thu nhỏ sai.
+                            Extents2d paperRect = GetPaperRect(sourcePaperSize, sourceRotation);
                             Extents2d layoutWindow = savedWindowPlot
                                 ? sourcePlotWindow
-                                : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
+                                : layoutPlot && IsValidPlotWindow(paperRect)
+                                    ? paperRect
+                                    : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
                             bool layoutLandscape;
                             if (layoutPlot)
                             {
@@ -791,6 +797,15 @@ namespace CADtools
             {
                 System.Diagnostics.Trace.WriteLine("[SSP-PLOT-DIAG] Could not write diagnostic file: " + ex);
             }
+        }
+
+        // Khung giấy của layout trong tọa độ paper space: (0,0) là góc dưới-trái tờ giấy.
+        private static Extents2d GetPaperRect(Point2d paperSize, PlotRotation rotation)
+        {
+            bool quarterTurn = rotation == PlotRotation.Degrees090 || rotation == PlotRotation.Degrees270;
+            double w = quarterTurn ? paperSize.Y : paperSize.X;
+            double h = quarterTurn ? paperSize.X : paperSize.Y;
+            return new Extents2d(new Point2d(0, 0), new Point2d(w, h));
         }
 
         private static Extents2d GetLayoutExtents(Transaction transaction, Layout layout, Point2d fallbackPaperSize)
