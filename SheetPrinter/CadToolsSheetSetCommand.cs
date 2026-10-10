@@ -419,6 +419,7 @@ namespace CADtools
 
                 int successCount = 0;
                 int failureCount = 0;
+                int closedDwgCount = 0;
                 for (int i = 0; i < sheets.Count; i++)
                 {
                     SheetInfo sheet = sheets[i];
@@ -474,7 +475,7 @@ namespace CADtools
                         if (merged) pagePdfs.Add(pdfPath);
                         UpdateOptionalPlotProgress(progressLabel, progressBar,
                             (i + 1) * 100 / Math.Max(1, sheets.Count),
-                            "Đã in " + (i + 1) + "/" + sheets.Count + " | Thành công: " + successCount + " | Lỗi: " + failureCount);
+                            "Đã in " + (i + 1) + "/" + sheets.Count + " | Thành công: " + successCount + " | Lỗi: " + failureCount + " | Đã đóng " + closedDwgCount + " DWG");
                         System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL][OK] " + sheet.Title + " -> " + pdfPath);
                     }
                     catch (Exception ex)
@@ -498,10 +499,17 @@ namespace CADtools
                                 int lastIdx;
                                 if (lastUseIndex.TryGetValue(NormalizeDwgKey(sheet.DwgPath), out lastIdx) && lastIdx == i)
                                 {
-                                    if (openedDocuments.Remove(sheetDocument))
+                                    try
                                     {
-                                        try { sheetDocument.CloseAndDiscard(); } catch { }
-                                        System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL] Đã đóng DWG sau sheet cuối: " + sheet.DwgPath);
+                                        sheetDocument.CloseAndDiscard();
+                                        openedDocuments.Remove(sheetDocument);
+                                        closedDwgCount++;
+                                        System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL] Đã đóng DWG sau sheet cuối (" + closedDwgCount + "): " + sheet.DwgPath);
+                                    }
+                                    catch (Exception closeEx)
+                                    {
+                                        // Dong loi: giu trong openedDocuments de finally cuoi thu lai.
+                                        System.Diagnostics.Trace.WriteLine("[SSP-OPTIONAL] Không đóng được DWG: " + sheet.DwgPath + " - " + closeEx.Message);
                                     }
                                 }
                             }
