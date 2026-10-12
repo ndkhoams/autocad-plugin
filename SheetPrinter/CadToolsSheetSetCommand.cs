@@ -752,7 +752,7 @@ namespace CADtools
         // Tam thoi tat ghi file chan doan (log/DSD) ra thu muc output cung PDF.
         private static bool EnablePublishDiagnostics = false;
         // Tam thoi tat ghi file _ssm_plot_diagnostics.log khi in tuy chon.
-        private static bool EnablePlotDiagnostics = false;
+        private static bool EnablePlotDiagnostics = true; // TAM BAT de debug SBP xuat sai - se tat lai sau
 
         private static bool PublishToPdf(DsdEntryCollection entries, string destPdf, string outDir, SheetType type, Editor ed)
         {
