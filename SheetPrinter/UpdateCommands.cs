@@ -97,6 +97,7 @@ namespace CADtools
                     Text = "Phiên bản",
                     Padding = new Padding(14, 12, 14, 10)
                 };
+                versionGroup.Font = new System.Drawing.Font(versionGroup.Font, System.Drawing.FontStyle.Bold);
                 var versionLayout = new TableLayoutPanel
                 {
                     Dock = DockStyle.Fill,
@@ -282,7 +283,8 @@ namespace CADtools
                 {
                     Dock = DockStyle.Fill,
                     Text = text,
-                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                    Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular)
                 };
             }
 
