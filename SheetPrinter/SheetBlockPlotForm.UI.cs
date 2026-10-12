@@ -69,6 +69,66 @@ namespace CADtools
         private readonly List<SheetBlockPlotLogic.BlockItem> _items =
             new List<SheetBlockPlotLogic.BlockItem>();
 
+        private static bool IsModelLayout(string layoutName)
+        {
+            return string.Equals((layoutName ?? "").Trim(), "Model", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class PosEntry
+        {
+            public SheetBlockPlotLogic.BlockItem Item;
+            public int Index;
+            public double Left;
+            public double Top;
+            public double Height;
+        }
+
+        private static List<SheetBlockPlotLogic.BlockItem> SortByPosition(List<SheetBlockPlotLogic.BlockItem> items)
+        {
+            var positioned = items
+                .Select((item, index) => new PosEntry
+                {
+                    Item = item,
+                    Index = index,
+                    Left = item == null ? 0 : item.Window.MinPoint.X,
+                    Top = item == null ? 0 : item.Window.MaxPoint.Y,
+                    Height = item == null ? 0 : item.Window.MaxPoint.Y - item.Window.MinPoint.Y
+                })
+                .OrderByDescending(x => x.Top)
+                .ToList();
+            if (positioned.Count == 0) return new List<SheetBlockPlotLogic.BlockItem>();
+
+            double typicalHeight = positioned
+                .Where(x => x.Height > 1e-6)
+                .Select(x => x.Height)
+                .DefaultIfEmpty(1.0)
+                .OrderBy(x => x)
+                .ElementAt(positioned.Count / 2);
+            double rowTolerance = Math.Max(1e-6, typicalHeight * 0.25);
+
+            var rows = new List<List<PosEntry>>();
+            foreach (var entry in positioned)
+            {
+                var row = rows.FirstOrDefault(r => Math.Abs(r[0].Top - entry.Top) <= rowTolerance);
+                if (row == null)
+                {
+                    row = new List<PosEntry>();
+                    rows.Add(row);
+                }
+                row.Add(entry);
+            }
+
+            var result = new List<SheetBlockPlotLogic.BlockItem>();
+            foreach (var row in rows.OrderByDescending(r => r[0].Top))
+            {
+                result.AddRange(row
+                    .OrderBy(x => x.Left)
+                    .ThenBy(x => x.Index)
+                    .Select(x => x.Item));
+            }
+            return result;
+        }
+
         private sealed class NaturalStringComparer : System.Collections.Generic.IComparer<string>
         {
             public int Compare(string a, string b)
@@ -698,15 +758,36 @@ namespace CADtools
                 try { _ed.WriteMessage("\n[LỖI Refresh] " + ex.Message); } catch { }
             }
 
-            // Sort theo tên layout (natural sort: 1005 < 1006 < ... < 1017, A2 < A10).
-            // Khung cùng layout giữ nguyên thứ tự vị trí cũ (OrderBy ổn định).
+            // Sort: block layout -> theo tên layout (natural), cùng layout thì theo vị trí;
+            // block Model -> theo vị trí (trên->dưới, trái->phải).
             try
             {
-                var sorted = _items
+                var layoutItems = _items.Where(x => !IsModelLayout(x == null ? null : x.LayoutName)).ToList();
+                var modelItems = _items.Where(x => IsModelLayout(x == null ? null : x.LayoutName)).ToList();
+
+                var sortedLayouts = layoutItems
                     .OrderBy(x => x == null ? "" : (x.LayoutName ?? ""), new NaturalStringComparer())
                     .ToList();
+                var finalItems = new List<SheetBlockPlotLogic.BlockItem>();
+                string lastLayout = null;
+                var group = new List<SheetBlockPlotLogic.BlockItem>();
+                foreach (var it in sortedLayouts)
+                {
+                    string ln = it == null ? "" : (it.LayoutName ?? "");
+                    if (lastLayout != null && !string.Equals(lastLayout, ln, StringComparison.OrdinalIgnoreCase))
+                    {
+                        finalItems.AddRange(SortByPosition(group));
+                        group.Clear();
+                    }
+                    lastLayout = ln;
+                    group.Add(it);
+                }
+                if (group.Count > 0) finalItems.AddRange(SortByPosition(group));
+
+                finalItems.AddRange(SortByPosition(modelItems));
+
                 _items.Clear();
-                _items.AddRange(sorted);
+                _items.AddRange(finalItems);
 
                 ApplyDefaultPdfNames();
             }
