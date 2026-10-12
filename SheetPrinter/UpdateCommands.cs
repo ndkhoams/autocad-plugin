@@ -14,7 +14,7 @@ namespace CADtools
 {
     public class UpdateCommands
     {
-        private const string BuildTimestamp = "20261011-032821";
+        private const string BuildTimestamp = "20261012-143051";
         private const string LatestSourceUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/SheetPrinter/UpdateCommands.cs";
         private const string DownloadUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/AutoCad_SSP.iso";
         private static readonly HttpClient Http = CreateHttpClient();
@@ -86,7 +86,7 @@ namespace CADtools
                 var heading = new Label
                 {
                     Dock = DockStyle.Fill,
-                    Text = "SHEET PRINTER - UPDATES",
+                    Text = "SHEET PRINTER - UPDATE",
                     TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
                     Font = new System.Drawing.Font(Font.FontFamily, 16F, System.Drawing.FontStyle.Bold)
                 };
