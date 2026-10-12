@@ -673,6 +673,17 @@ namespace CADtools
                             SafeSet("SetUseStandardScale", () => validator.SetUseStandardScale(settings, true));
                             SafeSet("SetStdScaleType", () => validator.SetStdScaleType(settings, StdScaleType.ScaleToFit));
 
+                            WriteSbpDiagnostic(pdfFile, "[SBP-DIAG-SINGLE] layout=" + (layoutName ?? "") + " isModel=" + isModel
+                                + " paperMedia=" + (paperMedia ?? "")
+                                + " rectLandscape=" + rectLandscape
+                                + " rawWinSize=" + F(win.MaxPoint.X - win.MinPoint.X) + "x" + F(win.MaxPoint.Y - win.MinPoint.Y)
+                                + " winSize=" + F(normalizedWindow.MaxPoint.X - normalizedWindow.MinPoint.X) + "x"
+                                + F(normalizedWindow.MaxPoint.Y - normalizedWindow.MinPoint.Y)
+                                + " rotation=" + settings.PlotRotation
+                                + " targetPaper=" + F(settings.PlotPaperSize.X) + "x" + F(settings.PlotPaperSize.Y)
+                                + " plotType=" + settings.PlotType
+                                + " scale=" + settings.StdScaleType);
+
                             var plotInfo = new PlotInfo { Layout = layoutId, OverrideSettings = settings };
                             new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled }.Validate(plotInfo);
                             ExecutePlot(plotInfo, pdfFile);
