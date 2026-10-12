@@ -69,13 +69,38 @@ namespace CADtools
         private readonly List<SheetBlockPlotLogic.BlockItem> _items =
             new List<SheetBlockPlotLogic.BlockItem>();
 
-        private sealed class BlockSortEntry
+        private sealed class NaturalStringComparer : System.Collections.Generic.IComparer<string>
         {
-            public SheetBlockPlotLogic.BlockItem Item;
-            public int Index;
-            public double Left;
-            public double Top;
-            public double Height;
+            public int Compare(string a, string b)
+            {
+                if (a == null && b == null) return 0;
+                if (a == null) return -1;
+                if (b == null) return 1;
+                int i = 0, j = 0;
+                while (i < a.Length && j < b.Length)
+                {
+                    bool da = char.IsDigit(a[i]);
+                    bool db = char.IsDigit(b[j]);
+                    if (da && db)
+                    {
+                        int si = i, sj = j;
+                        while (i < a.Length && char.IsDigit(a[i])) i++;
+                        while (j < b.Length && char.IsDigit(b[j])) j++;
+                        string na = a.Substring(si, i - si).TrimStart('0');
+                        string nb = b.Substring(sj, j - sj).TrimStart('0');
+                        if (na.Length != nb.Length) return na.Length.CompareTo(nb.Length);
+                        int cmp = string.Compare(na, nb, StringComparison.Ordinal);
+                        if (cmp != 0) return cmp;
+                    }
+                    else
+                    {
+                        int cmp = char.ToUpperInvariant(a[i]).CompareTo(char.ToUpperInvariant(b[j]));
+                        if (cmp != 0) return cmp;
+                        i++; j++;
+                    }
+                }
+                return a.Length.CompareTo(b.Length);
+            }
         }
 
         public SheetBlockPlotForm(Document doc)
@@ -673,49 +698,15 @@ namespace CADtools
                 try { _ed.WriteMessage("\n[LỖI Refresh] " + ex.Message); } catch { }
             }
 
-            // Sort theo góc trên bên trái của khung: trên xuống dưới, trái sang phải.
+            // Sort theo tên layout (natural sort: 1005 < 1006 < ... < 1017, A2 < A10).
+            // Khung cùng layout giữ nguyên thứ tự vị trí cũ (OrderBy ổn định).
             try
             {
-                var positioned = _items
-                    .Select((item, index) => new BlockSortEntry
-                    {
-                        Item = item,
-                        Index = index,
-                        Left = item == null ? 0 : item.Window.MinPoint.X,
-                        Top = item == null ? 0 : item.Window.MaxPoint.Y,
-                        Height = item == null ? 0 : item.Window.MaxPoint.Y - item.Window.MinPoint.Y
-                    })
-                    .OrderByDescending(x => x.Top)
+                var sorted = _items
+                    .OrderBy(x => x == null ? "" : (x.LayoutName ?? ""), new NaturalStringComparer())
                     .ToList();
-
-                double typicalHeight = positioned
-                    .Where(x => x.Height > 1e-6)
-                    .Select(x => x.Height)
-                    .DefaultIfEmpty(1.0)
-                    .OrderBy(x => x)
-                    .ElementAt(positioned.Count == 0 ? 0 : positioned.Count / 2);
-                double rowTolerance = Math.Max(1e-6, typicalHeight * 0.25);
-
-                var rows = new List<List<BlockSortEntry>>();
-                foreach (var entry in positioned)
-                {
-                    var row = rows.FirstOrDefault(r => Math.Abs(r[0].Top - entry.Top) <= rowTolerance);
-                    if (row == null)
-                    {
-                        row = new List<BlockSortEntry>();
-                        rows.Add(row);
-                    }
-                    row.Add(entry);
-                }
-
                 _items.Clear();
-                foreach (var row in rows.OrderByDescending(r => r[0].Top))
-                {
-                    _items.AddRange(row
-                    .OrderBy(x => x.Left)
-                        .ThenBy(x => x.Index)
-                    .Select(x => x.Item));
-                }
+                _items.AddRange(sorted);
 
                 ApplyDefaultPdfNames();
             }
