@@ -59,21 +59,6 @@ namespace CADtools
             try { _ed.WriteMessage("\n" + msg); } catch { }
         }
 
-        // TAM: ghi log SBP ra file de debug (se xoa sau khi fix xong).
-        private static bool EnableSbpDiagnostics = true;
-        private static void WriteSbpDiagnostic(string pdfFile, string message)
-        {
-            try
-            {
-                if (!EnableSbpDiagnostics) return;
-                if (string.IsNullOrWhiteSpace(pdfFile)) return;
-                string dir = Path.GetDirectoryName(pdfFile);
-                if (string.IsNullOrWhiteSpace(dir)) return;
-                string logPath = Path.Combine(dir, "_sbp_diagnostics.log");
-                File.AppendAllText(logPath, DateTime.Now.ToString("HH:mm:ss") + " " + message + Environment.NewLine);
-            }
-            catch { }
-        }
 
         public class BlockItem
         {
@@ -645,15 +630,16 @@ namespace CADtools
                         using (var settings = new PlotSettings(layout.ModelType))
                         {
                             settings.CopyFrom(layout);
-                            bool layoutLandscape = settings.PlotPaperSize.X >= settings.PlotPaperSize.Y;
                             PlotSettingsValidator validator = PlotSettingsValidator.Current;
                             ConfigurePlotSettings(validator, settings, paperMedia, styleSheet);
                             SafeSet("SetPlotPaperUnits", () => validator.SetPlotPaperUnits(settings, PlotPaperUnit.Millimeters));
                             bool paperLandscape = IsPaperLandscape(paperMedia);
                             try { validator.SetPlotOrigin(settings, new Point2d(0, 0)); } catch { }
                             try { db.TileMode = isModel; } catch { }
+                            // Xoay theo huong KHUNG (rectLandscape), khong theo kho giay layout:
+                            // layout co the doc (420x594) nhung khung lai ngang (594x420).
                             SafeSet("SetPlotRotation", () => validator.SetPlotRotation(settings,
-                                layoutLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000));
+                                rectLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000));
 
                             Extents2d normalizedWindow = NormalizePlotWindow(win, isModel);
                             string temporaryViewName = null;
@@ -672,17 +658,6 @@ namespace CADtools
                             try { validator.SetPlotCentered(settings, true); } catch { }
                             SafeSet("SetUseStandardScale", () => validator.SetUseStandardScale(settings, true));
                             SafeSet("SetStdScaleType", () => validator.SetStdScaleType(settings, StdScaleType.ScaleToFit));
-
-                            WriteSbpDiagnostic(pdfFile, "[SBP-DIAG-SINGLE] layout=" + (layoutName ?? "") + " isModel=" + isModel
-                                + " paperMedia=" + (paperMedia ?? "")
-                                + " rectLandscape=" + rectLandscape
-                                + " rawWinSize=" + F(win.MaxPoint.X - win.MinPoint.X) + "x" + F(win.MaxPoint.Y - win.MinPoint.Y)
-                                + " winSize=" + F(normalizedWindow.MaxPoint.X - normalizedWindow.MinPoint.X) + "x"
-                                + F(normalizedWindow.MaxPoint.Y - normalizedWindow.MinPoint.Y)
-                                + " rotation=" + settings.PlotRotation
-                                + " targetPaper=" + F(settings.PlotPaperSize.X) + "x" + F(settings.PlotPaperSize.Y)
-                                + " plotType=" + settings.PlotType
-                                + " scale=" + settings.StdScaleType);
 
                             var plotInfo = new PlotInfo { Layout = layoutId, OverrideSettings = settings };
                             new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled }.Validate(plotInfo);
@@ -967,11 +942,6 @@ namespace CADtools
                         Log("[SBP-DIAG] >> prepare plot layout=" + (layoutName ?? "") + " isModel=" + isModel
                             + " rawWin=[" + F(request.Window.MinPoint.X) + "," + F(request.Window.MinPoint.Y) + "]-["
                             + F(request.Window.MaxPoint.X) + "," + F(request.Window.MaxPoint.Y) + "] pdf=" + (pdfFile ?? ""));
-                        WriteSbpDiagnostic(pdfFile, "[SBP-DIAG] layout=" + (layoutName ?? "") + " isModel=" + isModel
-                            + " paperMedia=" + (paperMedia ?? "")
-                            + " rectLandscape=" + request.RectLandscape
-                            + " rawWinSize=" + F(request.Window.MaxPoint.X - request.Window.MinPoint.X) + "x"
-                            + F(request.Window.MaxPoint.Y - request.Window.MinPoint.Y));
 
                         // Switch đúng layout TRƯỚC khi start Transaction (tránh eLayoutNotCurrent).
                         try { if (!string.IsNullOrWhiteSpace(layoutName)) lm.CurrentLayout = layoutName; } catch { }
@@ -1014,12 +984,6 @@ namespace CADtools
                                     + " win2=[" + F(win2.MinPoint.X) + "," + F(win2.MinPoint.Y) + "]-["
                                     + F(win2.MaxPoint.X) + "," + F(win2.MaxPoint.Y) + "]"
                                     + " w=" + F(win2.MaxPoint.X - win2.MinPoint.X) + " h=" + F(win2.MaxPoint.Y - win2.MinPoint.Y));
-                                WriteSbpDiagnostic(pdfFile, "[SBP-DIAG] layout=" + (layoutName ?? "")
-                                    + " win2Size=" + F(win2.MaxPoint.X - win2.MinPoint.X) + "x" + F(win2.MaxPoint.Y - win2.MinPoint.Y)
-                                    + " rotation=" + ps.PlotRotation
-                                    + " targetPaper=" + F(ps.PlotPaperSize.X) + "x" + F(ps.PlotPaperSize.Y)
-                                    + " plotType=" + ps.PlotType
-                                    + " scale=" + ps.StdScaleType);
 
                                 if (isModel)
                                 {
