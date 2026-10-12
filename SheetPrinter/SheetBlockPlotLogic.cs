@@ -707,42 +707,22 @@ namespace CADtools
                             bool layoutPlot = sourcePlotType == Autodesk.AutoCAD.DatabaseServices.PlotType.Layout;
                             bool savedWindowPlot = sourcePlotType == Autodesk.AutoCAD.DatabaseServices.PlotType.Window &&
                                 IsValidPlotWindow(sourcePlotWindow);
-                            bool sourceQuarterTurn = sourceRotation == PlotRotation.Degrees090 ||
-                                sourceRotation == PlotRotation.Degrees270;
                             // Luôn in theo Window + Fit: với PlotType.Layout, AutoCAD bỏ qua Fit
                             // (layout luôn được hiểu là 1:1), nên đổi khổ giấy sẽ không scale.
                             // Với layout: window = khung giấy (paper rect) — tương đương PlotType.Layout
                             // nhưng cho phép Fit. Không dùng union extents vì entity lạ ngoài khung
                             // sẽ làm Fit thu nhỏ sai.
                             Extents2d paperRect = GetPaperRect(sourcePaperSize, sourceRotation);
-                            Extents2d layoutWindow;
-                            PlotRotation targetRotation;
-                            bool needRotationCalc;
-                            if (savedWindowPlot && sourceQuarterTurn)
-                            {
-                                // Saved window được định nghĩa trong hệ tọa độ đã xoay 90/270 —
-                                // nếu đổi rotation về 0 thì window lệch khỏi paper space thật
-                                // (log 2026-10-12: window [0,0]-[594,420] với paper 420x594).
-                                // Dùng khung giấy gốc (paper space, chưa xoay) + giữ nguyên
-                                // rotation gốc thì luôn đúng, Fit tự scale theo khổ đích.
-                                layoutWindow = new Extents2d(new Point2d(0, 0),
-                                    new Point2d(sourcePaperSize.X, sourcePaperSize.Y));
-                                targetRotation = sourceRotation;
-                                needRotationCalc = false;
-                            }
-                            else
-                            {
-                                layoutWindow = savedWindowPlot
-                                    ? sourcePlotWindow
-                                    : layoutPlot && IsValidPlotWindow(paperRect)
-                                        ? paperRect
-                                        : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
-                                needRotationCalc = true;
-                                targetRotation = PlotRotation.Degrees000; // placeholder
-                            }
+                            Extents2d layoutWindow = savedWindowPlot
+                                ? sourcePlotWindow
+                                : layoutPlot && IsValidPlotWindow(paperRect)
+                                    ? paperRect
+                                    : GetLayoutExtents(transaction, layout, settings.PlotPaperSize);
                             bool layoutLandscape;
                             if (layoutPlot)
                             {
+                                bool sourceQuarterTurn = sourceRotation == PlotRotation.Degrees090 ||
+                                    sourceRotation == PlotRotation.Degrees270;
                                 layoutLandscape = (sourcePaperSize.X >= sourcePaperSize.Y) != sourceQuarterTurn;
                             }
                             else
@@ -753,12 +733,9 @@ namespace CADtools
                             PlotSettingsValidator validator = PlotSettingsValidator.Current;
                             ConfigurePlotSettings(validator, settings, paperMedia, styleSheet);
                             SafeSet("SetPlotPaperUnits", () => validator.SetPlotPaperUnits(settings, PlotPaperUnit.Millimeters));
-                            if (needRotationCalc)
-                            {
-                                bool paperLandscape = IsPaperLandscape(paperMedia);
-                                targetRotation = layoutLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000;
-                            }
-                            SafeSet("SetPlotRotation", () => validator.SetPlotRotation(settings, targetRotation));
+                            bool paperLandscape = IsPaperLandscape(paperMedia);
+                            SafeSet("SetPlotRotation", () => validator.SetPlotRotation(settings,
+                                layoutLandscape != paperLandscape ? PlotRotation.Degrees090 : PlotRotation.Degrees000));
                             SafeSet("SetPlotWindowArea", () => validator.SetPlotWindowArea(settings, layoutWindow));
                             SafeSet("SetPlotType", () => validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Window));
                             SafeSet("SetPlotCentered", () => validator.SetPlotCentered(settings, true));
@@ -782,8 +759,7 @@ namespace CADtools
                                 + F(layoutWindow.MaxPoint.Y - layoutWindow.MinPoint.Y)
                                 + " targetMedia=" + settings.CanonicalMediaName
                                 + " targetPaper=" + F(settings.PlotPaperSize.X) + "x" + F(settings.PlotPaperSize.Y)
-                                + " plotRotation=" + targetRotation
-                                + " savedWindowPlot=" + savedWindowPlot
+                                + " plotRotation=" + settings.PlotRotation
                                 + " standardScale=" + settings.StdScaleType;
                             Log(diagnostic);
                             WritePlotDiagnostic(diagnosticLogPath, diagnostic);
