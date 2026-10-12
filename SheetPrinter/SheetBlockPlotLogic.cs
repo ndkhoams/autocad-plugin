@@ -59,6 +59,22 @@ namespace CADtools
             try { _ed.WriteMessage("\n" + msg); } catch { }
         }
 
+        // TAM: ghi log SBP ra file de debug (se xoa sau khi fix xong).
+        private static bool EnableSbpDiagnostics = true;
+        private static void WriteSbpDiagnostic(string pdfFile, string message)
+        {
+            try
+            {
+                if (!EnableSbpDiagnostics) return;
+                if (string.IsNullOrWhiteSpace(pdfFile)) return;
+                string dir = Path.GetDirectoryName(pdfFile);
+                if (string.IsNullOrWhiteSpace(dir)) return;
+                string logPath = Path.Combine(dir, "_sbp_diagnostics.log");
+                File.AppendAllText(logPath, DateTime.Now.ToString("HH:mm:ss") + " " + message + Environment.NewLine);
+            }
+            catch { }
+        }
+
         public class BlockItem
         {
             public int Stt { get; set; } = 0;
@@ -940,6 +956,11 @@ namespace CADtools
                         Log("[SBP-DIAG] >> prepare plot layout=" + (layoutName ?? "") + " isModel=" + isModel
                             + " rawWin=[" + F(request.Window.MinPoint.X) + "," + F(request.Window.MinPoint.Y) + "]-["
                             + F(request.Window.MaxPoint.X) + "," + F(request.Window.MaxPoint.Y) + "] pdf=" + (pdfFile ?? ""));
+                        WriteSbpDiagnostic(pdfFile, "[SBP-DIAG] layout=" + (layoutName ?? "") + " isModel=" + isModel
+                            + " paperMedia=" + (paperMedia ?? "")
+                            + " rectLandscape=" + request.RectLandscape
+                            + " rawWinSize=" + F(request.Window.MaxPoint.X - request.Window.MinPoint.X) + "x"
+                            + F(request.Window.MaxPoint.Y - request.Window.MinPoint.Y));
 
                         // Switch đúng layout TRƯỚC khi start Transaction (tránh eLayoutNotCurrent).
                         try { if (!string.IsNullOrWhiteSpace(layoutName)) lm.CurrentLayout = layoutName; } catch { }
@@ -982,6 +1003,12 @@ namespace CADtools
                                     + " win2=[" + F(win2.MinPoint.X) + "," + F(win2.MinPoint.Y) + "]-["
                                     + F(win2.MaxPoint.X) + "," + F(win2.MaxPoint.Y) + "]"
                                     + " w=" + F(win2.MaxPoint.X - win2.MinPoint.X) + " h=" + F(win2.MaxPoint.Y - win2.MinPoint.Y));
+                                WriteSbpDiagnostic(pdfFile, "[SBP-DIAG] layout=" + (layoutName ?? "")
+                                    + " win2Size=" + F(win2.MaxPoint.X - win2.MinPoint.X) + "x" + F(win2.MaxPoint.Y - win2.MinPoint.Y)
+                                    + " rotation=" + ps.PlotRotation
+                                    + " targetPaper=" + F(ps.PlotPaperSize.X) + "x" + F(ps.PlotPaperSize.Y)
+                                    + " plotType=" + ps.PlotType
+                                    + " scale=" + ps.StdScaleType);
 
                                 if (isModel)
                                 {
