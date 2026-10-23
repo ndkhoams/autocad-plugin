@@ -25,6 +25,7 @@ namespace CADtools
 
         private TextBox _txtBlockName;
         private Button _btnPickBlock;
+        private Button _btnPickLine;
         private Button _btnRefresh;
         private Button _btnFilterWindow;
         private Button _btnBrowseOut;
@@ -51,6 +52,11 @@ namespace CADtools
 
         // Filter theo vùng quét: lưu handle các block nằm trong selection (null = không lọc)
         private HashSet<string> _windowFilterHandles = null;
+
+        // Chế độ nguồn khung (2 chế độ LOẠI TRỪ nhau):
+        // null = chế độ BLOCK (quét block theo tên khung); khác null = chế độ LINE
+        // (quét LINE thuộc layer này — layer học từ 1 line mẫu người dùng pick).
+        private string _lineLayer = null;
 
         // Map hiển thị khổ giấy (A0/A1/A2/A3) -> canonical media name (ISO_full_bleed_...)
         private readonly Dictionary<string, string> _paperMediaMap =
@@ -186,11 +192,15 @@ namespace CADtools
             _btnPickBlock.Click += (s, e) => PickBlockName();
             Controls.Add(_btnPickBlock);
 
-            _btnFilterWindow = new Button { Left = 460, Top = y, Width = 150, Height = 28, Text = "Chọn vùng in" };
+            _btnPickLine = new Button { Left = 460, Top = y, Width = 150, Height = 28, Text = "Chọn LINE" };
+            _btnPickLine.Click += (s, e) => PickLineLayer();
+            Controls.Add(_btnPickLine);
+
+            _btnFilterWindow = new Button { Left = 618, Top = y, Width = 150, Height = 28, Text = "Chọn vùng in" };
             _btnFilterWindow.Click += (s, e) => FilterByWindow();
             Controls.Add(_btnFilterWindow);
 
-            _btnRefresh = new Button { Left = 618, Top = y, Width = 90, Height = 28, Text = "Refresh" };
+            _btnRefresh = new Button { Left = 776, Top = y, Width = 90, Height = 28, Text = "Refresh" };
             _btnRefresh.Click += (s, e) => RefreshList();
             Controls.Add(_btnRefresh);
 
@@ -422,23 +432,22 @@ namespace CADtools
 
             var setup = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 3, Padding = new Padding(0, 2, 0, 0) };
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
-            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 122));
+            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 122));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
-            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
-            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             AddSetupLabel(setup, "Khung tên", 0, 0);
             Put(setup, _txtBlockName, 1, 0);
+            // Hàng 1 theo thứ tự thao tác: Chọn khung -> Chọn LINE -> Chọn vùng in -> Refresh.
             PutButton(setup, _btnPickBlock, 2, 0, 108);
-            PutButton(setup, _btnFilterWindow, 3, 0, 114);
-            // Thứ tự thao tác: Chọn khung -> Chọn vùng in -> Refresh (quét) -> Khổ giấy.
-            PutButton(setup, _btnRefresh, 4, 0, 86);
-            AddSetupLabel(setup, "Khổ giấy", 5, 0);
-            Put(setup, _cbPaper, 6, 0);
+            PutButton(setup, _btnPickLine, 3, 0, 114);
+            PutButton(setup, _btnFilterWindow, 4, 0, 114);
+            PutButton(setup, _btnRefresh, 5, 0, 86);
             AddSetupLabel(setup, "Thư mục PDF", 0, 1);
             Put(setup, _txtOutDir, 1, 1);
             var browseCell = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 1, 7, 1) };
@@ -449,9 +458,13 @@ namespace CADtools
             _btnBrowseOut.Top = 1;
             browseCell.Controls.Add(_btnBrowseOut);
             setup.Controls.Add(browseCell, 2, 1);
-            AddSetupLabel(setup, "Nét in", 3, 1);
-            setup.SetColumnSpan(_cbStyle, 3);
-            Put(setup, _cbStyle, 4, 1);
+            // Khổ giấy chuyển xuống hàng 2, cùng hàng với Nét in.
+            AddSetupLabel(setup, "Khổ giấy", 3, 1);
+            Put(setup, _cbPaper, 4, 1);
+            AddSetupLabel(setup, "Nét in", 5, 1);
+            Put(setup, _cbStyle, 6, 1);
+            // Ô Nét in ở hàng 2 hẹp hơn trước -> nới danh sách thả xuống cho dễ đọc tên CTB/STB.
+            try { _cbStyle.DropDownWidth = 300; } catch { }
             var combineRow = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 1, 7, 1) };
             _chkCombinePdf.Dock = DockStyle.None;
             _chkCombinePdf.Location = new Point(0, 5);
@@ -749,12 +762,20 @@ namespace CADtools
             // Treo layout khi nạp lại nhiều dòng: tránh grid tính lại layout sau từng dòng (chậm với danh sách dài).
             try { _grid.SuspendLayout(); } catch { }
 
-            string target = (_txtBlockName.Text ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(target)) target = "KHUNG_MT";
-
             try
             {
-                _items.AddRange(_logic.CollectBlocks(target, _windowFilterHandles));
+                if (!string.IsNullOrWhiteSpace(_lineLayer))
+                {
+                    // Chế độ LINE: chỉ quét LINE theo layer đã học — KHÔNG quét block.
+                    _items.AddRange(_logic.CollectLines(_lineLayer, _windowFilterHandles));
+                }
+                else
+                {
+                    // Chế độ BLOCK: chỉ quét block theo tên khung — KHÔNG quét line.
+                    string target = (_txtBlockName.Text ?? "").Trim();
+                    if (string.IsNullOrWhiteSpace(target)) target = "KHUNG_MT";
+                    _items.AddRange(_logic.CollectBlocks(target, _windowFilterHandles));
+                }
             }
             catch (System.Exception ex)
             {
@@ -922,7 +943,8 @@ namespace CADtools
                         if (s) selected++;
                     }
                 }
-                _lblSelInfo.Text = "Đã chọn " + selected + "/" + total + " block khung tên.";
+                string noun = string.IsNullOrWhiteSpace(_lineLayer) ? "block khung tên." : "line khung.";
+                _lblSelInfo.Text = "Đã chọn " + selected + "/" + total + " " + noun;
             }
             catch { }
         }
@@ -1157,12 +1179,15 @@ namespace CADtools
 
                         _txtBlockName.Text = name;
 
+                        // Chọn khung = chuyển hẳn về chế độ BLOCK (tắt chế độ LINE nếu đang bật)
+                        _lineLayer = null;
+
                         // Chọn mới -> bỏ filter vùng cũ để lần Refresh sau quét toàn bộ theo tên mới
                         _windowFilterHandles = null;
 
                         // Xóa danh sách cũ (thuộc khung tên trước) để tránh in nhầm;
                         // danh sách mới chỉ có sau khi nhấn Refresh.
-                        ClearListForRescan("Đã chọn khung '" + name + "'. Nhấn Refresh để tìm.");
+                        ClearListForRescan("Đã chọn khung '" + name + "' (chế độ Block). Nhấn Refresh để tìm.");
                     }
                     return;
                 }
@@ -1174,6 +1199,68 @@ namespace CADtools
             finally
             {
                 // Chỉ hiện lại form — KHÔNG RefreshList ở đây: quét danh sách là việc của nút Refresh.
+                try { this.Show(); this.Activate(); } catch { }
+            }
+        }
+
+        // Nút "Chọn LINE": pick ĐÚNG 1 line chéo khung tên để HỌC LAYER của nó, rồi chuyển
+        // hẳn sang chế độ LINE (loại trừ với chế độ Block): các lần Refresh sau đó chỉ quét
+        // các LINE thuộc layer này, mỗi line coi như 1 khung tên (cửa sổ in = AABB 2 đầu line).
+        // Giống "Chọn khung": chỉ đọc thông tin của 1 đối tượng mẫu, KHÔNG quét tại đây.
+        private void PickLineLayer()
+        {
+            try
+            {
+                // Ẩn form để quay lại màn hình CAD và chọn đối tượng
+                try { this.Hide(); } catch { }
+
+                while (true)
+                {
+                    var peo = new PromptEntityOptions("\nChọn 1 line chéo của khung tên để lấy layer: ");
+                    peo.AllowNone = false;
+
+                    var per = _ed.GetEntity(peo);
+                    if (per.Status != PromptStatus.OK) return; // ESC / hủy -> giữ nguyên chế độ hiện tại
+
+                    string layer = null;
+                    bool isLine = false;
+
+                    using (_doc.LockDocument())
+                    using (var tr = _doc.Database.TransactionManager.StartTransaction())
+                    {
+                        var line = tr.GetObject(per.ObjectId, OpenMode.ForRead) as Line;
+                        if (line != null)
+                        {
+                            isLine = true;
+                            layer = line.Layer;
+                        }
+                        tr.Commit();
+                    }
+
+                    if (!isLine)
+                    {
+                        try { _ed.WriteMessage("\nĐối tượng vừa chọn không phải LINE. Hãy chọn lại (ESC để hủy)."); } catch { }
+                        continue; // cho chọn lại
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(layer))
+                    {
+                        // Chuyển hẳn sang chế độ LINE + bỏ filter vùng cũ (đã đổi nguồn khung).
+                        _lineLayer = layer.Trim();
+                        _windowFilterHandles = null;
+
+                        // Xóa danh sách cũ để tránh in nhầm; danh sách line chỉ có sau khi nhấn Refresh.
+                        ClearListForRescan("Chế độ LINE — layer '" + _lineLayer + "'. Nhấn Refresh để tìm line khung.");
+                    }
+                    return;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                try { _ed.WriteMessage("\n[LỖI] Chọn line: " + ex.Message); } catch { }
+            }
+            finally
+            {
                 try { this.Show(); this.Activate(); } catch { }
             }
         }
@@ -1200,7 +1287,7 @@ namespace CADtools
                 _windowFilterHandles = picked;
 
                 // Xóa danh sách cũ (không còn đúng với vùng lọc mới); nhấn Refresh để tìm lại trong vùng.
-                ClearListForRescan("Đã chọn vùng (" + picked.Count + " block). Nhấn Refresh để tìm trong vùng.");
+                ClearListForRescan("Đã chọn vùng (" + picked.Count + " đối tượng). Nhấn Refresh để tìm trong vùng.");
             }
             else
             {

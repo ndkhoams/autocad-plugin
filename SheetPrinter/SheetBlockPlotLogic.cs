@@ -136,6 +136,108 @@ namespace CADtools
             return items;
         }
 
+        // ============================================================
+        // 1b) QUÉT LINE KHUNG (chế độ LINE — chạy THAY HẲN quét block, không chạy chung)
+        // Mỗi LINE trên đúng layer đã học từ line mẫu được coi là 1 khung tên:
+        // line là đường chéo nối 2 góc đối diện của khung -> cửa sổ in = AABB của 2 đầu line.
+        // LINE không có attribute nên Ký hiệu/Hạng mục/Tên bản vẽ để trống (sửa tay trong grid).
+        // ============================================================
+        public List<BlockItem> CollectLines(string layerName, HashSet<string> windowFilterHandles)
+        {
+            var items = new List<BlockItem>();
+            string layer = (layerName ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(layer)) return items;
+
+            try
+            {
+                using (_doc.LockDocument())
+                using (Transaction tr = _doc.Database.TransactionManager.StartTransaction())
+                {
+                    BlockTable bt = (BlockTable)tr.GetObject(_doc.Database.BlockTableId, OpenMode.ForRead);
+
+                    // Model space
+                    TryCollectLinesFromBtr(tr, items, windowFilterHandles,
+                        (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead),
+                        "Model", layer);
+
+                    // All paper layouts
+                    DBDictionary layoutDict = (DBDictionary)tr.GetObject(_doc.Database.LayoutDictionaryId, OpenMode.ForRead);
+                    foreach (DBDictionaryEntry de in layoutDict)
+                    {
+                        Layout lo = (Layout)tr.GetObject(de.Value, OpenMode.ForRead);
+                        if (lo.ModelType) continue;
+                        var btr = (BlockTableRecord)tr.GetObject(lo.BlockTableRecordId, OpenMode.ForRead);
+                        TryCollectLinesFromBtr(tr, items, windowFilterHandles, btr, lo.LayoutName, layer);
+                    }
+
+                    tr.Commit();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("[LỖI CollectLines] " + ex.Message);
+            }
+
+            EnsureUniquePdfNames(items);
+            return items;
+        }
+
+        private static void TryCollectLinesFromBtr(
+            Transaction tr,
+            List<BlockItem> items,
+            HashSet<string> windowFilterHandles,
+            BlockTableRecord btr,
+            string layoutName,
+            string layerName)
+        {
+            bool useWindowFilter = windowFilterHandles != null && windowFilterHandles.Count > 0;
+
+            foreach (ObjectId id in btr)
+            {
+                var line = tr.GetObject(id, OpenMode.ForRead) as Line;
+                if (line == null) continue;
+
+                // Lọc theo vùng TRƯỚC (rẻ nhất): ngoài vùng thì bỏ qua ngay.
+                if (useWindowFilter)
+                {
+                    string hh = "";
+                    try { hh = line.Handle.ToString(); } catch { hh = ""; }
+                    if (string.IsNullOrWhiteSpace(hh) || !windowFilterHandles.Contains(hh))
+                        continue;
+                }
+
+                if (!string.Equals(line.Layer ?? "", layerName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                double minX = Math.Min(line.StartPoint.X, line.EndPoint.X);
+                double maxX = Math.Max(line.StartPoint.X, line.EndPoint.X);
+                double minY = Math.Min(line.StartPoint.Y, line.EndPoint.Y);
+                double maxY = Math.Max(line.StartPoint.Y, line.EndPoint.Y);
+                double w = maxX - minX, h = maxY - minY;
+
+                // Line ngang/dọc thì không phải đường chéo khung -> bỏ qua.
+                if (w <= SbpConstants.MinEdgeLen || h <= SbpConstants.MinEdgeLen) continue;
+
+                items.Add(new BlockItem
+                {
+                    Stt = items.Count + 1,
+                    LayoutName = layoutName ?? "",
+                    KyHieu = "",
+                    HangMuc = "",
+                    TenBanVe = "",
+                    PdfName = "",
+                    Handle = line.Handle.ToString(),
+
+                    // Vị trí sắp xếp: góc dưới-trái của khung suy ra từ line.
+                    PosX = minX,
+                    PosY = minY,
+
+                    Window = new Extents2d(new Point2d(minX, minY), new Point2d(maxX, maxY)),
+                    RectLandscape = w >= h
+                });
+            }
+        }
+
         // Chống trùng tên PDF: file thứ 2 sẽ thành ..._2.pdf thay vì đè file thứ 1.
         private static void EnsureUniquePdfNames(List<BlockItem> items)
         {
@@ -637,9 +739,12 @@ namespace CADtools
                 foreach (SelectedObject so in res.Value)
                 {
                     if (so == null) continue;
-                    var br = tr.GetObject(so.ObjectId, OpenMode.ForRead) as BlockReference;
-                    if (br == null) continue;
-                    try { hs.Add(br.Handle.ToString()); } catch { }
+                    // Vùng lọc dùng chung cho cả 2 chế độ quét: lấy handle của BlockReference
+                    // (chế độ Block) lẫn Line (chế độ Line). Handle của chế độ kia nằm trong
+                    // tập cũng vô hại — không khớp ứng viên nào của lượt quét hiện tại.
+                    var ent = tr.GetObject(so.ObjectId, OpenMode.ForRead) as Entity;
+                    if (!(ent is BlockReference) && !(ent is Line)) continue;
+                    try { hs.Add(ent.Handle.ToString()); } catch { }
                 }
                 tr.Commit();
             }
