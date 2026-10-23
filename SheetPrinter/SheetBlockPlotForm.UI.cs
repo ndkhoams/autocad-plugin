@@ -26,6 +26,7 @@ namespace CADtools
         private TextBox _txtBlockName;
         private Button _btnPickBlock;
         private Button _btnPickLine;
+        private Label _lblLineLayer;
         private Button _btnRefresh;
         private Button _btnFilterWindow;
         private Button _btnBrowseOut;
@@ -195,6 +196,10 @@ namespace CADtools
             _btnPickLine = new Button { Left = 460, Top = y, Width = 150, Height = 28, Text = "Chọn LINE" };
             _btnPickLine.Click += (s, e) => PickLineLayer();
             Controls.Add(_btnPickLine);
+
+            // Nhãn hiện tên layer của line mẫu khi đang ở chế độ LINE (chế độ Block thì để trống)
+            _lblLineLayer = new Label { Left = 880, Top = y + 4, Width = 330, Height = 24, Text = "" };
+            Controls.Add(_lblLineLayer);
 
             _btnFilterWindow = new Button { Left = 618, Top = y, Width = 150, Height = 28, Text = "Chọn vùng in" };
             _btnFilterWindow.Click += (s, e) => FilterByWindow();
@@ -448,6 +453,13 @@ namespace CADtools
             PutButton(setup, _btnPickLine, 3, 0, 114);
             PutButton(setup, _btnFilterWindow, 4, 0, 114);
             PutButton(setup, _btnRefresh, 5, 0, 86);
+            // Ô trống bên phải Refresh: hiện tên layer khi đang ở chế độ LINE.
+            _lblLineLayer.Dock = DockStyle.Fill;
+            _lblLineLayer.TextAlign = ContentAlignment.MiddleLeft;
+            _lblLineLayer.Margin = new Padding(4, 1, 0, 1);
+            _lblLineLayer.Font = new Font(_lblLineLayer.Font, FontStyle.Bold);
+            setup.Controls.Add(_lblLineLayer, 6, 0);
+            UpdateModeDisplay();
             AddSetupLabel(setup, "Thư mục PDF", 0, 1);
             Put(setup, _txtOutDir, 1, 1);
             var browseCell = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 1, 7, 1) };
@@ -1188,6 +1200,7 @@ namespace CADtools
                         // Xóa danh sách cũ (thuộc khung tên trước) để tránh in nhầm;
                         // danh sách mới chỉ có sau khi nhấn Refresh.
                         ClearListForRescan("Đã chọn khung '" + name + "' (chế độ Block). Nhấn Refresh để tìm.");
+                        UpdateModeDisplay();
                     }
                     return;
                 }
@@ -1201,6 +1214,20 @@ namespace CADtools
                 // Chỉ hiện lại form — KHÔNG RefreshList ở đây: quét danh sách là việc của nút Refresh.
                 try { this.Show(); this.Activate(); } catch { }
             }
+        }
+
+        // Nhãn ở góc phải hàng 1: chế độ LINE -> hiện "Layer line: <tên layer>" để người dùng
+        // luôn thấy layer đang dùng; chế độ Block -> để trống.
+        private void UpdateModeDisplay()
+        {
+            try
+            {
+                if (_lblLineLayer != null)
+                    _lblLineLayer.Text = string.IsNullOrWhiteSpace(_lineLayer)
+                        ? ""
+                        : "Layer line: " + _lineLayer;
+            }
+            catch { }
         }
 
         // Nút "Chọn LINE": pick ĐÚNG 1 line chéo khung tên để HỌC LAYER của nó, rồi chuyển
@@ -1251,6 +1278,7 @@ namespace CADtools
 
                         // Xóa danh sách cũ để tránh in nhầm; danh sách line chỉ có sau khi nhấn Refresh.
                         ClearListForRescan("Chế độ LINE — layer '" + _lineLayer + "'. Nhấn Refresh để tìm line khung.");
+                        UpdateModeDisplay();
                     }
                     return;
                 }
