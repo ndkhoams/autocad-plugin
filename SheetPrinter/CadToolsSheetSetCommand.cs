@@ -159,10 +159,24 @@ namespace CADtools
                 using (var form = new PlotNamingForm(sheets, defDir, dstPath))
                 {
 
-                    if (AcadApp.ShowModalDialog(form) != DialogResult.OK) return;
+                    var dlgResult = AcadApp.ShowModalDialog(form);
+
+                    // Thu thap sheet da xoa NGAY khi form dong: form da go chung khoi danh sach
+                    // chinh (sheets) nen Release(sheets) o cuoi lenh khong con thay chung nua —
+                    // khong giu lai o day thi object COM cua tung sheet da xoa se ro ri.
+                    deletedSheets.AddRange(form.DeletedSheets);
+
+                    if (dlgResult != DialogResult.OK)
+                    {
+                        SheetSetReader.ReleaseSheetComs(deletedSheets);
+                        return;
+                    }
 
                     if (form.DstChanged)
                     {
+                        // Doi DST = bo cac thay doi (ke ca xoa sheet) cua phien form nay:
+                        // giai phong COM rieng cua cac sheet da xoa ngay tai day.
+                        SheetSetReader.ReleaseSheetComs(deletedSheets);
 
                         dstPath = form.DstPath;
                         // Update default output folder suggestion based on the newly selected DST
@@ -200,7 +214,7 @@ namespace CADtools
                     paperMedia = form.PaperMedia;
                     plotStyle = form.PlotStyle;
                     selected = form.SelectedSheets;
-                    deletedSheets.AddRange(form.DeletedSheets);
+                    // deletedSheets da thu thap ngay sau ShowModalDialog o tren.
                 }
 
                 // Bam "Lưu Sheet Set" -> ghi thay doi nguoc vao .dst, khong in.
@@ -210,7 +224,10 @@ namespace CADtools
                     SaveResult sr;
                     try { sr = SheetSetWriter.Save(allSheets, deletedSheets, ed); }
                     catch (Exception ex) { ed.WriteMessage("\nLỗi ghi Sheet Set: " + ex.Message); return; }
-                    finally { SheetSetReader.Release(deletedSheets); }
+                    // Chi release COM rieng cua tung sheet da xoa: OwnerCom/DbCom la object
+                    // dung chung voi allSheets, do finally ngoai cung release — Release() day du
+                    // o day se double-release cac object dung chung do.
+                    finally { SheetSetReader.ReleaseSheetComs(deletedSheets); }
                     ed.WriteMessage("\n{0} {1} sheet. Revision ghi được: {2}, không ghi được: {3}.",
                     sr.CommitSucceeded ? "Đã commit" : "Đã xử lý nhưng chưa commit",
                     sr.SheetsSaved, sr.RevisionOk, sr.RevisionFail);
@@ -219,6 +236,12 @@ namespace CADtools
                     foreach (var w in sr.Warnings) ed.WriteMessage("\n- " + w);
                     return;
                 }
+
+                // Cac nhanh in khong dung den deletedSheets (xoa chi ap dung khi Luu):
+                // giai phong COM rieng cua tung sheet da xoa ngay tai day, vi moi return
+                // phia duoi deu bo qua chung (OwnerCom/DbCom dung chung van do finally
+                // ngoai cung release cung danh sach chinh).
+                SheetSetReader.ReleaseSheetComs(deletedSheets);
 
                 // Nguoc lai: bam "In PDF" -> chi in cac sheet dang tich.
                 GList printSheets = selected;
@@ -781,11 +804,14 @@ namespace CADtools
                 dsd.WriteDsd(dsdFile);
 
                 var enc = Encoding.Default;
-                int sheetsAfterWrite = CountDsdSheetSections(dsdFile);
+                // Cac so dem section chi phuc vu log chan doan: PublishToPdf duoc goi cho TUNG
+                // sheet khi in le, nen khi tat chan doan thi bo qua han 2 luot doc lai file +
+                // 1 luot ghi/doc file DSD tam — tiet kiem I/O thua cho moi sheet.
+                int sheetsAfterWrite = EnablePublishDiagnostics ? CountDsdSheetSections(dsdFile) : -1;
                 ForceNoPrompt(dsdFile, enc);
-                int sheetsAfterForce = CountDsdSheetSections(dsdFile);
+                int sheetsAfterForce = EnablePublishDiagnostics ? CountDsdSheetSections(dsdFile) : -1;
                 dsd.ReadDsd(dsdFile);
-                int sheetsAfterRead = CountDsdSheetsAfterRead(dsd, outDir);
+                int sheetsAfterRead = EnablePublishDiagnostics ? CountDsdSheetsAfterRead(dsd, outDir) : -1;
 
                 if (EnablePublishDiagnostics)
                 {

@@ -787,6 +787,9 @@ namespace CADtools
         private void BuildRows()
         {
             _bulk = true;
+            // Treo layout khi dung lai toan bo dong (sheet set hang tram sheet):
+            // tranh DataGridView tinh lai layout sau tung dong duoc them.
+            try { dgv.SuspendLayout(); } catch { }
             try
             {
                 dgv.Rows.Clear();
@@ -845,7 +848,7 @@ namespace CADtools
                     }
                 }
             }
-            finally { _bulk = false; }
+            finally { _bulk = false; try { dgv.ResumeLayout(); } catch { } }
         }
 
         private void SyncChecks()

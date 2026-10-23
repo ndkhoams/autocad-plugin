@@ -169,6 +169,21 @@ namespace CADtools
             }
         }
 
+        // Chi release object COM cua RIENG tung sheet (IAcSmSheet) trong danh sach.
+        // Dung cho DeletedSheets cua PlotNamingForm: form da go cac sheet nay khoi danh sach
+        // chinh nen Release(sheets) o cuoi lenh khong con thay chung; trong khi OwnerCom/DbCom
+        // la object DUNG CHUNG voi cac sheet con lai (do danh sach chinh so huu va release),
+        // nen TUYET DOI khong release chung o day — se thanh double-release.
+        public static void ReleaseSheetComs(IEnumerable<SheetInfo> sheets)
+        {
+            foreach (var sheet in sheets ?? new List<SheetInfo>())
+            {
+                if (sheet == null) continue;
+                ComHelper.Release(sheet.Com);
+                sheet.Com = null;
+            }
+        }
+
         private static void ReleaseOnce(object comObject, List<object> released)
         {
             if (comObject == null || released.Exists(x => ReferenceEquals(x, comObject))) return;
