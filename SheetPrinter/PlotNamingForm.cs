@@ -86,15 +86,15 @@ namespace CADtools
 
             Text = "Sheet Set Manager and Printer - Build"
                 + UpdateCommands.BuildTimeLocal.ToString("yyyyMMdd-HHmmss") + " ©KhoaND";
-            ClientSize = new Size(1200, 800); StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size(1460, 800); StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9.75f);
-            MinimumSize = new Size(1160, 640);
+            MinimumSize = new Size(1460, 640);
             Padding = new Padding(6);
 
             // Dịch cụm trên đầu sang phải để không che text bên trái
             const int labelW = 170;
             const int fieldL = 190;
-            const int rightEdge = 1180;
+            const int rightEdge = 1440;
 
             // DST picker row
             var lblDst = new Label { Text = "Sheet set (.dst):", Left = 20, Top = 6, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
