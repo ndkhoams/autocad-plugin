@@ -133,12 +133,12 @@ namespace CADtools
             // shift the rest of controls down by 30px
             const int dy = 30;
 
-            var lblTpl = new Label { Text = "Tên file PDF:", Left = 20, Top = 26 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            var lblTpl = new Label { Text = "Tên file PDF:", Left = 20, Top = 8 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblTpl);
             txtTemplate = new TextBox
             {
                 Left = fieldL,
-                Top = 24 + dy,
+                Top = 6 + dy,
                 Width = rightEdge - fieldL,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
@@ -147,13 +147,13 @@ namespace CADtools
             txtTemplate.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtTemplate);
 
-            var lblTok = new Label { Text = "Add Field:", Left = 20, Top = 66 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            var lblTok = new Label { Text = "Add Field:", Left = 20, Top = 40 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblTok);
             pnlTokens = new FlowLayoutPanel
             {
                 Left = fieldL,
-                Top = 64 + dy,
-                Width = rightEdge - fieldL,
+                Top = 38 + dy,
+                Width = rightEdge - fieldL - 296,
                 Height = 56,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 AutoScroll = true,
@@ -163,44 +163,45 @@ namespace CADtools
             Controls.Add(pnlTokens);
             BuildTokenButtons();
 
-            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 130 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            var lblDir = new Label { Text = "Thư mục lưu PDF:", Left = 20, Top = 104 + dy, Width = labelW, Height = 26, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
             Controls.Add(lblDir);
             txtOutDir = new TextBox
             {
                 Left = fieldL,
-                Top = 128 + dy,
-                Width = 674,
+                Top = 102 + dy,
+                Width = 520,
                 Height = 26,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left,
                 Text = defaultDir ?? ""
             };
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
-            btnBrowse = new Button { Text = "...", Left = 870, Top = 127 + dy, Width = 34, Height = 28 };
+            btnBrowse = new Button { Text = "...", Left = 716, Top = 101 + dy, Width = 34, Height = 28 };
             btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
             Controls.Add(btnBrowse);
 
             // Nut publish chinh nam ngay sau o thu muc
-            btnPrint = new Button { Text = "Publish to PDF", Left = 971, Top = 127 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrint = new Button { Text = "Publish to PDF", Left = 762, Top = 101 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
             Controls.Add(btnPrint);
 
-            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = fieldL, Top = 166 + dy, Width = 280, Height = 24 };
+            // Gộp PDF: cùng hàng Add Field, nằm bên phải panel token
+            chkMerged = new CheckBox { Text = "Gộp tất cả vào 1 file PDF", Left = rightEdge - 288, Top = 42 + dy, Width = 280, Height = 24, Anchor = AnchorStyles.Top | AnchorStyles.Right };
             chkMerged.CheckedChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(chkMerged);
 
-            // Hang 2: khu vuc in tuy chon (chuc nang rieng) - du cho rong nen khong bi cat chu
-            var sepOptions = new Label { Left = fieldL + 292, Top = 164 + dy, Width = 3, Height = 28, BorderStyle = BorderStyle.Fixed3D };
+            // Cum in tuy chon: cung hang "Thu muc luu PDF", ngay sau nut Publish to PDF
+            var sepOptions = new Label { Left = 908, Top = 99 + dy, Width = 3, Height = 28, BorderStyle = BorderStyle.Fixed3D };
             Controls.Add(sepOptions);
 
-            var lblPaper = new Label { Text = "Khổ giấy:", Left = fieldL + 308, Top = 166 + dy, Width = 78, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbPaper = new ComboBox { Left = fieldL + 386, Top = 164 + dy, Width = 60, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblPaper = new Label { Text = "Khổ giấy:", Left = 920, Top = 104 + dy, Width = 70, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbPaper = new ComboBox { Left = 994, Top = 102 + dy, Width = 56, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             cbPaper.Items.AddRange(new object[] { "A0", "A1", "A2", "A3" });
             cbPaper.SelectedItem = "A3";
-            var lblStyle = new Label { Text = "Nét in:", Left = fieldL + 452, Top = 166 + dy, Width = 62, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
-            cbStyle = new ComboBox { Left = fieldL + 514, Top = 164 + dy, Width = 200, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblStyle = new Label { Text = "Nét in:", Left = 1058, Top = 104 + dy, Width = 56, Height = 24, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+            cbStyle = new ComboBox { Left = 1118, Top = 102 + dy, Width = 170, DropDownWidth = 280, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
-            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 971, Top = 163 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            btnPrintOptions = new Button { Text = "In tùy chọn", Left = 1296, Top = 101 + dy, Width = 124, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
             btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
@@ -214,7 +215,7 @@ namespace CADtools
             {
                 Text = "Publish to PDF: Xuất PDF theo định dạng sẵn của Sheetset; In tùy chọn: Xuất PDF theo khổ giấy và nét in tùy chọn khác",
                 Left = 20,
-                Top = 196 + dy,
+                Top = 136 + dy,
                 Width = rightEdge - 20,
                 Height = 24,
                 ForeColor = Color.Gray,
@@ -225,9 +226,9 @@ namespace CADtools
             dgv = new DataGridView
             {
                 Left = 20,
-                Top = 226 + dy,
+                Top = 166 + dy,
                 Width = rightEdge - 20,
-                Height = 484,
+                Height = 544,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 AllowUserToAddRows = false,
                 ReadOnly = false,
