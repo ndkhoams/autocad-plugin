@@ -100,14 +100,19 @@ namespace CADtools
                 {
                     BlockTable bt = (BlockTable)tr.GetObject(_doc.Database.BlockTableId, OpenMode.ForRead);
 
-                    // Cache tên block theo definition dùng chung cho cả lượt quét:
-                    // hàng trăm reference của cùng 1 khung tên chỉ phải resolve tên 1 lần.
+                    // Các cache dùng chung cho cả lượt quét (chỉ sống trong 1 lần CollectBlocks,
+                    // nên bản vẽ sửa giữa 2 lần Refresh vẫn được quét lại đúng):
+                    // - nameCache: tên block theo definition (nhiều reference dùng chung 1 definition).
+                    // - rectCache: 4 điểm RECT khung in trong hệ definition, theo definition.
+                    // - extentsCache: GeometricExtents đã trừ tịnh tiến, theo (definition + rotation/scale).
                     var nameCache = new Dictionary<ObjectId, string>();
+                    var rectCache = new Dictionary<ObjectId, Point3d[]>();
+                    var extentsCache = new Dictionary<string, Extents2d>();
 
                     // Model space
                     TryCollectFromBtr(tr, items, windowFilterHandles,
                         (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead),
-                        "Model", "Model", target, nameCache);
+                        "Model", "Model", target, nameCache, rectCache, extentsCache);
 
                     // All paper layouts
                     DBDictionary layoutDict = (DBDictionary)tr.GetObject(_doc.Database.LayoutDictionaryId, OpenMode.ForRead);
@@ -116,7 +121,7 @@ namespace CADtools
                         Layout lo = (Layout)tr.GetObject(de.Value, OpenMode.ForRead);
                         if (lo.ModelType) continue;
                         var btr = (BlockTableRecord)tr.GetObject(lo.BlockTableRecordId, OpenMode.ForRead);
-                        TryCollectFromBtr(tr, items, windowFilterHandles, btr, "Layout:" + lo.LayoutName, lo.LayoutName, target, nameCache);
+                        TryCollectFromBtr(tr, items, windowFilterHandles, btr, "Layout:" + lo.LayoutName, lo.LayoutName, target, nameCache, rectCache, extentsCache);
                     }
 
                     tr.Commit();
@@ -160,7 +165,9 @@ namespace CADtools
             string spaceLabel,
             string layoutName,
             string targetName,
-            Dictionary<ObjectId, string> nameCache)
+            Dictionary<ObjectId, string> nameCache,
+            Dictionary<ObjectId, Point3d[]> rectCache,
+            Dictionary<string, Extents2d> extentsCache)
         {
             bool useWindowFilter = windowFilterHandles != null && windowFilterHandles.Count > 0;
 
@@ -194,25 +201,22 @@ namespace CADtools
 
                 // window = polyline RECT khung in trong block (kể cả nested block).
                 // KHÔNG fallback sang GeometricExtents để tránh in sai vùng.
-                if (!TryGetOuterFrameWindow(tr, br, out Extents2d win, out bool rectLandscape))
-                {
-                    Log("[SBP] Không tìm thấy RECT polyline khung in (kể cả nested). Bỏ qua. Handle=" + br.Handle);
+                // (Không log theo từng block ở đây: WriteMessage ra Editor cho hàng trăm block
+                // làm lần quét chậm thấy rõ; lỗi tổng thể đã có [LỖI CollectBlocks] ghi lại.)
+                if (!TryGetOuterFrameWindow(tr, br, rectCache, out Extents2d win, out bool rectLandscape))
                     continue;
-                }
 
                 // Với XREF/Block cũ, RECT có thể nằm đúng hình học nhưng vẫn không được
                 // PlotEngine nhận là vùng entity. Dùng extents WCS thực tế của BlockReference
                 // làm vùng plot chính; RECT vẫn được dùng ở trên để xác định orientation.
+                // Extents lấy qua cache (xem GetCachedGeometricWindow) — không gọi thẳng
+                // GeometricExtents cho từng reference nữa.
                 try
                 {
-                    Extents3d actual = br.GeometricExtents;
-                    var actualWin = new Extents2d(
-                        new Point2d(actual.MinPoint.X, actual.MinPoint.Y),
-                        new Point2d(actual.MaxPoint.X, actual.MaxPoint.Y));
+                    var actualWin = GetCachedGeometricWindow(br, extentsCache);
                     win = actualWin;
                     rectLandscape = (actualWin.MaxPoint.X - actualWin.MinPoint.X) >=
                                     (actualWin.MaxPoint.Y - actualWin.MinPoint.Y);
-                    Log("[SBP] Dùng GeometricExtents WCS làm window. Handle=" + br.Handle);
                 }
                 catch { }
 
@@ -220,18 +224,6 @@ namespace CADtools
                 string kyHieu = GetAttr(map, SbpConstants.AttrKyHieu);
                 string hangMuc = GetAttr(map, SbpConstants.AttrHangMuc);
                 string tenBanVe = GetAttr(map, SbpConstants.AttrTenBanVe);
-
-                try
-                {
-                    var layer = (LayerTableRecord)tr.GetObject(br.LayerId, OpenMode.ForRead);
-                    var definition = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
-                    Log("[SBP-DIAG] Handle=" + br.Handle +
-                        " layer=" + (layer == null ? "" : layer.Name) +
-                        " plottable=" + (layer == null || layer.IsPlottable) +
-                        " visible=" + br.Visible +
-                        " xref=" + (definition != null && definition.IsFromExternalReference));
-                }
-                catch { }
 
                 items.Add(new BlockItem
                 {
@@ -256,7 +248,57 @@ namespace CADtools
         // ============================================================
         // 2) TÌM KHUNG IN (RECT) — kể cả nested block, có rotation
         // ============================================================
-        private static bool TryGetOuterFrameWindow(Transaction tr, BlockReference br, out Extents2d win, out bool rectLandscape)
+
+        // Vùng extents WCS của 1 BlockReference từ GeometricExtents, thu về 2D.
+        private static Extents2d GeometricWindow(BlockReference br)
+        {
+            Extents3d actual = br.GeometricExtents;
+            return new Extents2d(
+                new Point2d(actual.MinPoint.X, actual.MinPoint.Y),
+                new Point2d(actual.MaxPoint.X, actual.MaxPoint.Y));
+        }
+
+        // GeometricExtents rất đắt (AutoCAD phải duyệt toàn bộ hình học của block, đặc biệt nặng
+        // với xref) nhưng kết quả của nó cho 1 BlockReference chỉ phụ thuộc vào (definition,
+        // BlockTransform). BlockTransform là affine dạng M(x) = L·x + t, nên:
+        //     AABB(M(G)) = t + AABB(L(G))
+        // tức các reference cùng definition + cùng phần tuyến tính L (rotation/scale — trường hợp
+        // thường gặp khi copy khung tên) có extents chỉ khác nhau bởi tịnh tiến t.
+        // Cache AABB(L(G)) (extents đã trừ t) theo khoá (definition, L); mỗi reference cộng lại t
+        // của nó -> cùng kết quả như gọi GeometricExtents trực tiếp, nhưng chỉ phải gọi thật
+        // 1 lần cho mỗi (definition, rotation/scale) phân biệt trong 1 lượt quét.
+        private static Extents2d GetCachedGeometricWindow(BlockReference br, Dictionary<string, Extents2d> cache)
+        {
+            if (cache == null) return GeometricWindow(br);
+
+            var m = br.BlockTransform;
+            double tx = m[0, 3], ty = m[1, 3];
+
+            // Chỉ 2 hàng đầu của L ảnh hưởng tới extents X/Y (hàng Z không tham gia vùng in 2D).
+            string key = br.BlockTableRecord.Handle.ToString() + "|" +
+                m[0, 0].ToString("R", CultureInfo.InvariantCulture) + "," +
+                m[0, 1].ToString("R", CultureInfo.InvariantCulture) + "," +
+                m[0, 2].ToString("R", CultureInfo.InvariantCulture) + "," +
+                m[1, 0].ToString("R", CultureInfo.InvariantCulture) + "," +
+                m[1, 1].ToString("R", CultureInfo.InvariantCulture) + "," +
+                m[1, 2].ToString("R", CultureInfo.InvariantCulture);
+
+            Extents2d rel;
+            if (!cache.TryGetValue(key, out rel))
+            {
+                var w = GeometricWindow(br);
+                rel = new Extents2d(
+                    new Point2d(w.MinPoint.X - tx, w.MinPoint.Y - ty),
+                    new Point2d(w.MaxPoint.X - tx, w.MaxPoint.Y - ty));
+                cache[key] = rel;
+            }
+
+            return new Extents2d(
+                new Point2d(rel.MinPoint.X + tx, rel.MinPoint.Y + ty),
+                new Point2d(rel.MaxPoint.X + tx, rel.MaxPoint.Y + ty));
+        }
+
+        private static bool TryGetOuterFrameWindow(Transaction tr, BlockReference br, Dictionary<ObjectId, Point3d[]> rectCache, out Extents2d win, out bool rectLandscape)
         {
             win = new Extents2d(new Point2d(0, 0), new Point2d(0, 0));
             rectLandscape = true;
@@ -267,41 +309,38 @@ namespace CADtools
                 var def = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
                 if (def == null) return false;
 
-                bool has = false;
-                Extents3d best = new Extents3d();
-                double bestArea = -1;
+                // Việc quét tìm RECT chạy hoàn toàn trong hệ definition (acc bắt đầu từ Identity,
+                // không dính BlockTransform của reference) nên kết quả CHỈ phụ thuộc definition:
+                // quét 1 lần cho mỗi definition rồi dùng lại cho mọi reference của nó.
+                // rectCache lưu null cho definition không có RECT (để khỏi quét lại).
                 Point3d[] bestPts = null; // 4 điểm RECT trong hệ def gốc (đã áp nested-transform)
+                bool cached = rectCache != null && rectCache.TryGetValue(br.BlockTableRecord, out bestPts);
+                if (!cached)
+                {
+                    bool has = false;
+                    Extents3d best = new Extents3d();
+                    double bestArea = -1;
+                    Point3d[] scanned = null;
 
-                // CHỈ quét nội dung trực tiếp của block khung tên (bỏ qua nested block = chi tiết bên trong),
-                // để các chi tiết vẽ trong bản vẽ không làm sai vùng in.
-                ScanRectRecursive(tr, def, Matrix3d.Identity, false, ref has, ref best, ref bestArea, ref bestPts);
+                    // CHỈ quét nội dung trực tiếp của block khung tên (bỏ qua nested block = chi tiết bên trong),
+                    // để các chi tiết vẽ trong bản vẽ không làm sai vùng in.
+                    ScanRectRecursive(tr, def, Matrix3d.Identity, false, ref has, ref best, ref bestArea, ref scanned);
 
-                // Fallback: nếu khung in được vẽ trong nested block (cấp trên cùng không có RECT) thì mới quét đệ quy,
-                // để không phá vỡ tương thích với các bản vẽ cũ.
-                if (!has)
-                    ScanRectRecursive(tr, def, Matrix3d.Identity, true, ref has, ref best, ref bestArea, ref bestPts);
+                    // Fallback: nếu khung in được vẽ trong nested block (cấp trên cùng không có RECT) thì mới quét đệ quy,
+                    // để không phá vỡ tương thích với các bản vẽ cũ.
+                    if (!has)
+                        ScanRectRecursive(tr, def, Matrix3d.Identity, true, ref has, ref best, ref bestArea, ref scanned);
 
-                if (!has || bestPts == null || bestPts.Length != 4) return false;
+                    bestPts = (has && scanned != null && scanned.Length == 4) ? scanned : null;
+                    if (rectCache != null) rectCache[br.BlockTableRecord] = bestPts;
+                }
+
+                if (bestPts == null || bestPts.Length != 4) return false;
 
                 // Transform 4 điểm RECT thật ra world/paperspace theo BlockTransform
                 var m = br.BlockTransform;
                 Point3d[] wpts = new Point3d[4];
                 for (int i = 0; i < 4; i++) wpts[i] = bestPts[i].TransformBy(m);
-
-                // [DIAGNOSTIC] Log transform info for debugging
-                try
-                {
-                    System.Diagnostics.Debug.WriteLine(string.Format("[SBP-DEBUG] Block Handle={0}, Name={1}", br.Handle, br.Name));
-                    System.Diagnostics.Debug.WriteLine(string.Format("[SBP-DEBUG] Block Position=({0:F3}, {1:F3}, {2:F3}), Rotation={3:F2}°",
-                        br.Position.X, br.Position.Y, br.Position.Z, br.Rotation * 180.0 / Math.PI));
-                    System.Diagnostics.Debug.WriteLine(string.Format("[SBP-DEBUG] RECT in Block Space:"));
-                    for (int i = 0; i < 4; i++)
-                        System.Diagnostics.Debug.WriteLine(string.Format("  P{0}=({1:F3}, {2:F3})", i, bestPts[i].X, bestPts[i].Y));
-                    System.Diagnostics.Debug.WriteLine(string.Format("[SBP-DEBUG] RECT after Transform:"));
-                    for (int i = 0; i < 4; i++)
-                        System.Diagnostics.Debug.WriteLine(string.Format("  P{0}=({1:F3}, {2:F3})", i, wpts[i].X, wpts[i].Y));
-                }
-                catch { }
 
                 rectLandscape = IsLandscapeByLongestEdge(wpts);
 
@@ -316,16 +355,6 @@ namespace CADtools
                 }
 
                 win = new Extents2d(new Point2d(minX, minY), new Point2d(maxX, maxY));
-
-                // [DIAGNOSTIC] Log final window
-                try
-                {
-                    System.Diagnostics.Debug.WriteLine(string.Format("[SBP-DEBUG] Final Window: ({0:F3}, {1:F3}) - ({2:F3}, {3:F3})",
-                        win.MinPoint.X, win.MinPoint.Y, win.MaxPoint.X, win.MaxPoint.Y));
-                    System.Diagnostics.Debug.WriteLine(string.Format("[SBP-DEBUG] Window Size: {0:F3} x {1:F3}\n",
-                        win.MaxPoint.X - win.MinPoint.X, win.MaxPoint.Y - win.MinPoint.Y));
-                }
-                catch { }
 
                 return true;
             }
