@@ -190,7 +190,7 @@ namespace CADtools
             _btnFilterWindow.Click += (s, e) => FilterByWindow();
             Controls.Add(_btnFilterWindow);
 
-            _btnRefresh = new Button { Left = 558, Top = y, Width = 90, Height = 28, Text = "Refresh" };
+            _btnRefresh = new Button { Left = 618, Top = y, Width = 90, Height = 28, Text = "Refresh" };
             _btnRefresh.Click += (s, e) => RefreshList();
             Controls.Add(_btnRefresh);
 
@@ -425,9 +425,9 @@ namespace CADtools
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 122));
-            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
+            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
+            setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
@@ -435,9 +435,10 @@ namespace CADtools
             Put(setup, _txtBlockName, 1, 0);
             PutButton(setup, _btnPickBlock, 2, 0, 108);
             PutButton(setup, _btnFilterWindow, 3, 0, 114);
-            AddSetupLabel(setup, "Khổ giấy", 4, 0);
-            Put(setup, _cbPaper, 5, 0);
-            PutButton(setup, _btnRefresh, 6, 0, 78);
+            // Thứ tự thao tác: Chọn khung -> Chọn vùng in -> Refresh (quét) -> Khổ giấy.
+            PutButton(setup, _btnRefresh, 4, 0, 86);
+            AddSetupLabel(setup, "Khổ giấy", 5, 0);
+            Put(setup, _cbPaper, 6, 0);
             AddSetupLabel(setup, "Thư mục PDF", 0, 1);
             Put(setup, _txtOutDir, 1, 1);
             var browseCell = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 1, 7, 1) };
@@ -745,6 +746,8 @@ namespace CADtools
         {
             _items.Clear();
             _grid.Rows.Clear();
+            // Treo layout khi nạp lại nhiều dòng: tránh grid tính lại layout sau từng dòng (chậm với danh sách dài).
+            try { _grid.SuspendLayout(); } catch { }
 
             string target = (_txtBlockName.Text ?? "").Trim();
             if (string.IsNullOrWhiteSpace(target)) target = "KHUNG_MT";
@@ -840,6 +843,7 @@ namespace CADtools
             }
             catch { }
 
+            try { _grid.ResumeLayout(); } catch { }
             UpdateSelectionInfo();
         }
 
@@ -1089,7 +1093,8 @@ namespace CADtools
         }
 
         // Nút "Chọn khung": ẩn form, cho người dùng pick 1 block khung tên HOẶC External Reference (xref),
-        // rồi điền tên vào ô "Block Khung Tên" và refresh danh sách.
+        // rồi CHỈ điền tên vào ô "Block Khung Tên" — KHÔNG quét bản vẽ tại đây (quét toàn bộ rất chậm).
+        // Danh sách chỉ được tìm lại khi người dùng nhấn nút Refresh.
         // KHÔNG dùng AddAllowedClass (tránh loại nhầm xref) — tự kiểm tra sau khi chọn.
         private void PickBlockName()
         {
@@ -1152,8 +1157,12 @@ namespace CADtools
 
                         _txtBlockName.Text = name;
 
-                        // Chọn mới -> bỏ filter vùng cũ để quét lại toàn bộ theo tên
+                        // Chọn mới -> bỏ filter vùng cũ để lần Refresh sau quét toàn bộ theo tên mới
                         _windowFilterHandles = null;
+
+                        // Xóa danh sách cũ (thuộc khung tên trước) để tránh in nhầm;
+                        // danh sách mới chỉ có sau khi nhấn Refresh.
+                        ClearListForRescan("Đã chọn khung '" + name + "'. Nhấn Refresh để tìm.");
                     }
                     return;
                 }
@@ -1164,25 +1173,51 @@ namespace CADtools
             }
             finally
             {
+                // Chỉ hiện lại form — KHÔNG RefreshList ở đây: quét danh sách là việc của nút Refresh.
                 try { this.Show(); this.Activate(); } catch { }
-                try { RefreshList(); } catch { }
             }
         }
 
+        // Nút "Chọn vùng in": chỉ ghi nhận tập handle trong vùng người dùng quét.
+        // KHÔNG quét/tìm tại đây — nhấn Refresh mới tìm (có vùng: chỉ trong vùng; chưa chọn vùng: toàn bộ bản vẽ).
         private void FilterByWindow()
         {
+            HashSet<string> picked = null;
             try
             {
                 // Ẩn form để quay lại màn hình CAD và quét vùng
                 try { this.Hide(); } catch { }
 
-                _windowFilterHandles = _logic.PromptSelectBlockHandles(_ed);
+                picked = _logic.PromptSelectBlockHandles(_ed);
             }
             finally
             {
                 try { this.Show(); this.Activate(); } catch { }
-                try { RefreshList(); } catch { }
             }
+
+            if (picked != null && picked.Count > 0)
+            {
+                _windowFilterHandles = picked;
+
+                // Xóa danh sách cũ (không còn đúng với vùng lọc mới); nhấn Refresh để tìm lại trong vùng.
+                ClearListForRescan("Đã chọn vùng (" + picked.Count + " block). Nhấn Refresh để tìm trong vùng.");
+            }
+            else
+            {
+                // ESC hoặc vùng chọn không có block nào: giữ nguyên bộ lọc và danh sách hiện tại,
+                // không quét lại (trước đây nhánh này cũng kích hoạt quét toàn bộ -> gây lag).
+                try { _ed.WriteMessage("\n[SBP] Đã hủy chọn vùng — giữ nguyên bộ lọc và danh sách hiện tại."); } catch { }
+            }
+        }
+
+        // Xóa danh sách hiện tại sau khi đổi khung tên / vùng lọc.
+        // Danh sách mới chỉ xuất hiện khi người dùng nhấn Refresh.
+        private void ClearListForRescan(string status)
+        {
+            _items.Clear();
+            _grid.Rows.Clear();
+            UpdateSelectionInfo();
+            try { _printStatus.Text = status ?? ""; } catch { }
         }
     }
 }

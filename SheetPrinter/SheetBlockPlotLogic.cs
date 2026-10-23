@@ -100,10 +100,14 @@ namespace CADtools
                 {
                     BlockTable bt = (BlockTable)tr.GetObject(_doc.Database.BlockTableId, OpenMode.ForRead);
 
+                    // Cache tên block theo definition dùng chung cho cả lượt quét:
+                    // hàng trăm reference của cùng 1 khung tên chỉ phải resolve tên 1 lần.
+                    var nameCache = new Dictionary<ObjectId, string>();
+
                     // Model space
                     TryCollectFromBtr(tr, items, windowFilterHandles,
                         (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead),
-                        "Model", "Model", target);
+                        "Model", "Model", target, nameCache);
 
                     // All paper layouts
                     DBDictionary layoutDict = (DBDictionary)tr.GetObject(_doc.Database.LayoutDictionaryId, OpenMode.ForRead);
@@ -112,7 +116,7 @@ namespace CADtools
                         Layout lo = (Layout)tr.GetObject(de.Value, OpenMode.ForRead);
                         if (lo.ModelType) continue;
                         var btr = (BlockTableRecord)tr.GetObject(lo.BlockTableRecordId, OpenMode.ForRead);
-                        TryCollectFromBtr(tr, items, windowFilterHandles, btr, "Layout:" + lo.LayoutName, lo.LayoutName, target);
+                        TryCollectFromBtr(tr, items, windowFilterHandles, btr, "Layout:" + lo.LayoutName, lo.LayoutName, target, nameCache);
                     }
 
                     tr.Commit();
@@ -155,27 +159,38 @@ namespace CADtools
             BlockTableRecord btr,
             string spaceLabel,
             string layoutName,
-            string targetName)
+            string targetName,
+            Dictionary<ObjectId, string> nameCache)
         {
+            bool useWindowFilter = windowFilterHandles != null && windowFilterHandles.Count > 0;
+
             foreach (ObjectId id in btr)
             {
                 BlockReference br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
                 if (br == null) continue;
 
-                string name = ResolveBlockName(tr, br);
-                // Lọc theo prefix: "KHUNG_MT" sẽ bắt cả "KHUNG_MT", "KHUNG_MT_A1", ...
-                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(targetName)
-                    || !name.StartsWith(targetName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                // Nếu đang bật filter theo vùng quét: chỉ lấy các block nằm trong selection
-                if (windowFilterHandles != null && windowFilterHandles.Count > 0)
+                // Lọc theo vùng TRƯỚC (rẻ nhất): ngoài vùng thì bỏ qua ngay,
+                // không đọc tên block / không quét hình học cho các block đó.
+                if (useWindowFilter)
                 {
                     string hh = "";
                     try { hh = br.Handle.ToString(); } catch { hh = ""; }
                     if (string.IsNullOrWhiteSpace(hh) || !windowFilterHandles.Contains(hh))
                         continue;
                 }
+
+                // Tên block lấy qua cache theo definition (nhiều reference dùng chung 1 definition).
+                string name;
+                if (nameCache == null || !nameCache.TryGetValue(br.BlockTableRecord, out name))
+                {
+                    name = ResolveBlockName(tr, br);
+                    if (nameCache != null) nameCache[br.BlockTableRecord] = name ?? "";
+                }
+
+                // Lọc theo prefix: "KHUNG_MT" sẽ bắt cả "KHUNG_MT", "KHUNG_MT_A1", ...
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(targetName)
+                    || !name.StartsWith(targetName, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 // window = polyline RECT khung in trong block (kể cả nested block).
                 // KHÔNG fallback sang GeometricExtents để tránh in sai vùng.
