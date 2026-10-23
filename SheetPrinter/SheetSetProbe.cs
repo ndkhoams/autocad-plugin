@@ -53,23 +53,28 @@ namespace CADtools
 
                     // Project Number / Project Name... la custom property cap SHEET SET.
                     sb.AppendLine("--- Custom property bag (cap SHEET SET) ---");
+                    AcSm.IAcSmSheetSet ssTop = null;
                     try
                     {
                         var dbCom = first.DbCom as AcSm.IAcSmDatabase;
-                        AcSm.IAcSmSheetSet ssTop = dbCom != null ? dbCom.GetSheetSet() : null;
+                        ssTop = dbCom != null ? dbCom.GetSheetSet() : null;
                         DumpBag(ssTop != null ? ssTop.GetCustomPropertyBag() : null, sb);
                     }
                     catch (Exception ex) { sb.AppendLine("(loi doc bag sheet set: " + ex.Message + ")"); }
+                    finally { ComHelper.Release(ssTop); } // ssTop do block nay tu lay qua GetSheetSet()
                     sb.AppendLine();
 
                     // Thu doc gia tri THAT cua property cap Sheet Set bang nhieu cach khac nhau.
                     sb.AppendLine("--- Test doc custom SHEET SET (nhieu cach) ---");
+                    AcSm.IAcSmSheetSet ssT = null;
+                    AcSm.IAcSmCustomPropertyBag ssBag = null;
+                    AcSm.IAcSmCustomPropertyBag shBag = null;
                     try
                     {
                         var dbT = first.DbCom as AcSm.IAcSmDatabase;
-                        AcSm.IAcSmSheetSet ssT = dbT != null ? dbT.GetSheetSet() : null;
-                        AcSm.IAcSmCustomPropertyBag ssBag = ssT != null ? ssT.GetCustomPropertyBag() : null;
-                        AcSm.IAcSmCustomPropertyBag shBag = sheet != null ? sheet.GetCustomPropertyBag() : null;
+                        ssT = dbT != null ? dbT.GetSheetSet() : null;
+                        ssBag = ssT != null ? ssT.GetCustomPropertyBag() : null;
+                        shBag = sheet != null ? sheet.GetCustomPropertyBag() : null;
                         string[] keys = { "Project Number", "Project Name", "Client" };
                         foreach (var k in keys)
                         {
@@ -78,6 +83,13 @@ namespace CADtools
                         }
                     }
                     catch (Exception ex) { sb.AppendLine("(loi test: " + ex.Message + ")"); }
+                    finally
+                    {
+                        // Ca 3 object deu do block nay tu lay (ProbeOne khong so huu bag).
+                        ComHelper.Release(ssBag);
+                        ComHelper.Release(shBag);
+                        ComHelper.Release(ssT);
+                    }
                     sb.AppendLine();
 
                     sb.AppendLine("--- API: IAcSmCustomPropertyBag ---");
@@ -96,16 +108,18 @@ namespace CADtools
 
                     // Goi thu cac getter co ten chua 'Project' tren SHEET SET & DATABASE (gia tri that muc Project Control).
                     sb.AppendLine("--- Invoke getter 'Project' tren SHEET SET & DATABASE ---");
+                    AcSm.IAcSmSheetSet ssP = null;
                     try
                     {
                         var dbP = first.DbCom as AcSm.IAcSmDatabase;
-                        AcSm.IAcSmSheetSet ssP = dbP != null ? dbP.GetSheetSet() : null;
+                        ssP = dbP != null ? dbP.GetSheetSet() : null;
                         sb.AppendLine("[SheetSet]");
                         InvokeGetters(ssP, new Type[] { typeof(AcSm.IAcSmSheetSet) }, "Project", sb);
                         sb.AppendLine("[Database]");
                         InvokeGetters(dbP, new Type[] { typeof(AcSm.IAcSmDatabase) }, "Project", sb);
                     }
                     catch (Exception ex) { sb.AppendLine("(loi invoke: " + ex.Message + ")"); }
+                    finally { ComHelper.Release(ssP); } // ssP do block nay tu lay qua GetSheetSet()
                     sb.AppendLine();
 
                     sb.AppendLine("--- Getter COM tra ve gia tri (loc Rev/Purpose/Issue) ---");
@@ -155,12 +169,16 @@ namespace CADtools
         }
 
         // Liet ke moi custom property (ten + gia tri + flags).
+        // DumpBag NHAN QUYEN SO HUU bag tu caller (moi caller deu truyen thang
+        // GetCustomPropertyBag() va khong dung lai) nen release bag + enumerator +
+        // tung value o day, dung mau cua SheetSetReader.ReadCustomProps.
         private static void DumpBag(AcSm.IAcSmCustomPropertyBag bag, StringBuilder sb)
         {
             if (bag == null) { sb.AppendLine("(khong co bag)"); return; }
+            AcSm.IAcSmEnumProperty pe = null;
             try
             {
-                AcSm.IAcSmEnumProperty pe = bag.GetPropertyEnumerator();
+                pe = bag.GetPropertyEnumerator();
                 pe.Reset();
                 string name; AcSm.AcSmCustomPropertyValue val;
                 pe.Next(out name, out val);
@@ -171,12 +189,19 @@ namespace CADtools
                     try { object o = val.GetValue(); v = o == null ? "" : o.ToString(); } catch { }
                     object flags = null; try { flags = val.GetFlags(); } catch { }
                     sb.AppendLine(" [" + name + "] = \"" + v + "\" (flags=" + flags + ")");
-                    c++; name = null; val = null;
+                    c++;
+                    ComHelper.Release(val);
+                    name = null; val = null;
                     pe.Next(out name, out val);
                 }
                 if (c == 0) sb.AppendLine("(bag rong)");
             }
             catch (Exception ex) { sb.AppendLine("(loi doc bag: " + ex.Message + ")"); }
+            finally
+            {
+                ComHelper.Release(pe);
+                ComHelper.Release(bag);
+            }
         }
 
         // Doc 1 property theo ten tu 1 bag, in gia tri + kieu VARIANT + flags de so sanh cach doc.
@@ -186,12 +211,16 @@ namespace CADtools
             AcSm.AcSmCustomPropertyValue v = null;
             try { v = (AcSm.AcSmCustomPropertyValue)bag.GetProperty(key); }
             catch (Exception ex) { sb.AppendLine(" " + label + " [" + key + "]: GetProperty loi: " + ex.Message); return; }
-            if (v == null) { sb.AppendLine(" " + label + " [" + key + "]: (khong co / null)"); return; }
-            object val = null; try { val = v.GetValue(); } catch (Exception ex) { sb.AppendLine(" " + label + " [" + key + "]: GetValue loi: " + ex.Message); return; }
-            object fl = null; try { fl = v.GetFlags(); } catch { }
-            string tp = val == null ? " " : val.GetType().FullName;
-            sb.AppendLine(" " + label + " [" + key + "]: value=\"" + (val == null ? "" : val.ToString())
-            + "\" type=" + tp + " flags=" + fl);
+            try
+            {
+                if (v == null) { sb.AppendLine(" " + label + " [" + key + "]: (khong co / null)"); return; }
+                object val = null; try { val = v.GetValue(); } catch (Exception ex) { sb.AppendLine(" " + label + " [" + key + "]: GetValue loi: " + ex.Message); return; }
+                object fl = null; try { fl = v.GetFlags(); } catch { }
+                string tp = val == null ? " " : val.GetType().FullName;
+                sb.AppendLine(" " + label + " [" + key + "]: value=\"" + (val == null ? "" : val.ToString())
+                + "\" type=" + tp + " flags=" + fl);
+            }
+            finally { ComHelper.Release(v); } // value do ProbeOne tu lay -> tu release
         }
 
         // Liet ke chu ky moi method cua 1 interface/coclass (de tim ham doc gia tri 'that').
