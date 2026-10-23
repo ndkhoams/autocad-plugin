@@ -103,7 +103,10 @@ namespace CADtools
     // Gui macro xuong dong lenh khi bam nut.
     internal class CmdHandler : System.Windows.Input.ICommand
     {
-        public event EventHandler CanExecuteChanged;
+        // CanExecuteChanged la thanh vien BAT BUOC cua ICommand (xoa la hong interface/ribbon).
+        // Handler nay CanExecute luon true nen khong bao gio raise su kien: dung accessor
+        // add/remove rong thay cho event dang field — het warning CS0067, hanh vi khong doi.
+        public event EventHandler CanExecuteChanged { add { } remove { } }
         public bool CanExecute(object parameter) { return true; }
 
         public void Execute(object parameter)
