@@ -457,7 +457,7 @@ namespace CADtools
             _lblLineLayer.Dock = DockStyle.Fill;
             _lblLineLayer.TextAlign = ContentAlignment.MiddleLeft;
             _lblLineLayer.Margin = new Padding(4, 1, 0, 1);
-            _lblLineLayer.Font = new Font(_lblLineLayer.Font, FontStyle.Bold);
+            _lblLineLayer.Font = new System.Drawing.Font(_lblLineLayer.Font, System.Drawing.FontStyle.Bold);
             setup.Controls.Add(_lblLineLayer, 6, 0);
             UpdateModeDisplay();
             AddSetupLabel(setup, "Thư mục PDF", 0, 1);
