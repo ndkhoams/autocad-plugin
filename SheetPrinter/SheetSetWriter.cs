@@ -191,7 +191,8 @@ namespace CADtools
                                     var t2 = objRef.GetType();
                                     var mi2 = t2.GetMethod("SetFileName") ?? t2.GetMethod("put_FileName") ?? t2.GetMethod("SetPath");
                                     if (mi2 != null) mi2.Invoke(objRef, new object[] { s.DwgPath ?? "" });
-                                    else res.Warnings.Add("DwgPath '" + s.Title + "': COM khong co SetFileName/put_FileName()");
+                                    else if (!TrySetDwgPathByDispatch(objRef, s.DwgPath ?? ""))
+                                        res.Warnings.Add("DwgPath '" + s.Title + "': COM khong co SetFileName/put_FileName()");
                                 }
                             }
                         }
@@ -311,6 +312,34 @@ namespace CADtools
             }
         }
 
+        // Fallback khi GetMethod that bai (dac biet duoi Embed Interop Types: member chi
+        // biet qua string literal khong duoc nhung, hoac runtime type la __ComObject):
+        // goi qua IDispatch nhu TrySetRefName trong LayoutRenamer.cs.
+        private static bool TrySetDwgPathByDispatch(object objRef, string newPath)
+        {
+            if (objRef == null) return false;
+            var t = objRef.GetType();
+            string[] methodNames = { "SetFileName", "put_FileName", "SetPath" };
+            foreach (var name in methodNames)
+            {
+                try
+                {
+                    t.InvokeMember(name,
+                        System.Reflection.BindingFlags.InvokeMethod, null, objRef, new object[] { newPath });
+                    return true;
+                }
+                catch { }
+            }
+            try
+            {
+                t.InvokeMember("FileName",
+                    System.Reflection.BindingFlags.SetProperty, null, objRef, new object[] { newPath });
+                return true;
+            }
+            catch { }
+            return false;
+        }
+
         // AcSm yeu cau InitNew(owner) cho object moi tao truoc khi SetProperty (neu khong -> NullReferenceException).
         private static void TryInitNew(object val, object owner)
         {
@@ -321,11 +350,18 @@ namespace CADtools
                 if (mi != null)
                 {
                     var ps = mi.GetParameters();
-                    if (ps.Length == 1) mi.Invoke(val, new object[] { owner });
-                    else if (ps.Length == 0) mi.Invoke(val, null);
+                    if (ps.Length == 1) { mi.Invoke(val, new object[] { owner }); return; }
+                    if (ps.Length == 0) { mi.Invoke(val, null); return; }
                 }
             }
             catch { }
+            // Fallback qua IDispatch khi GetMethod that bai (cung ly do nhu tren).
+            try { val.GetType().InvokeMember("InitNew", System.Reflection.BindingFlags.InvokeMethod, null, val, new object[] { owner }); }
+            catch
+            {
+                try { val.GetType().InvokeMember("InitNew", System.Reflection.BindingFlags.InvokeMethod, null, val, null); }
+                catch { }
+            }
         }
 
         private static string Safe(Func<string> f)
