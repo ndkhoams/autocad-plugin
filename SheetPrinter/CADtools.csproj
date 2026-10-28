@@ -56,13 +56,13 @@
 
 	<ItemGroup>
 		<COMFileReference Include="$(SheetSetTlb)">
-			<EmbedInteropTypes>false</EmbedInteropTypes>
+			<EmbedInteropTypes>true</EmbedInteropTypes>
 		</COMFileReference>
 		<COMFileReference Include="C:\Program Files\Common Files\Autodesk Shared\acax$(AcadComVersion)enu.tlb">
-			<EmbedInteropTypes>false</EmbedInteropTypes>
+			<EmbedInteropTypes>true</EmbedInteropTypes>
 		</COMFileReference>
 		<COMFileReference Include="C:\Program Files\Common Files\Autodesk Shared\axdb$(AcadComVersion)enu.tlb">
-			<EmbedInteropTypes>false</EmbedInteropTypes>
+			<EmbedInteropTypes>true</EmbedInteropTypes>
 		</COMFileReference>
 	</ItemGroup>
 
