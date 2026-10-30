@@ -35,6 +35,7 @@ namespace CADtools
         private TextBox _txtCombinedPdfName;
         private ComboBox _cbPaper;
         private ComboBox _cbStyle;
+        private ComboBox _cbSortOrder;
         // Fit luôn bật -> bỏ checkbox khỏi UI
         private DataGridView _grid;
         private Button _btnPrint;
@@ -96,9 +97,10 @@ namespace CADtools
             public double Left;
             public double Top;
             public double Height;
+            public double Width;
         }
 
-        private static List<SheetBlockPlotLogic.BlockItem> SortByPosition(List<SheetBlockPlotLogic.BlockItem> items)
+        private static List<SheetBlockPlotLogic.BlockItem> SortByPosition(List<SheetBlockPlotLogic.BlockItem> items, bool leftToRightFirst)
         {
             var positioned = items
                 .Select((item, index) => new PosEntry
@@ -107,7 +109,8 @@ namespace CADtools
                     Index = index,
                     Left = item == null ? 0 : item.Window.MinPoint.X,
                     Top = item == null ? 0 : item.Window.MaxPoint.Y,
-                    Height = item == null ? 0 : item.Window.MaxPoint.Y - item.Window.MinPoint.Y
+                    Height = item == null ? 0 : item.Window.MaxPoint.Y - item.Window.MinPoint.Y,
+                    Width = item == null ? 0 : item.Window.MaxPoint.X - item.Window.MinPoint.X
                 })
                 .OrderByDescending(x => x.Top)
                 .ToList();
@@ -133,15 +136,53 @@ namespace CADtools
                 row.Add(entry);
             }
 
-            var result = new List<SheetBlockPlotLogic.BlockItem>();
-            foreach (var row in rows.OrderByDescending(r => r[0].Top))
+            if (!leftToRightFirst)
             {
-                result.AddRange(row
-                    .OrderBy(x => x.Left)
+                // Trên->dưới trước (thứ tự hiện tại): gom thành HÀNG theo Top,
+                // hàng xếp từ trên xuống dưới, trong mỗi hàng xếp từ trái sang phải.
+                var result = new List<SheetBlockPlotLogic.BlockItem>();
+                foreach (var row in rows.OrderByDescending(r => r[0].Top))
+                {
+                    result.AddRange(row
+                        .OrderBy(x => x.Left)
+                        .ThenBy(x => x.Index)
+                        .Select(x => x.Item));
+                }
+                return result;
+            }
+
+            // Trái->phải trước: gom thành CỘT theo Left (tolerance 25% bề rộng trung vị),
+            // cột xếp từ trái sang phải, trong mỗi cột xếp từ trên xuống dưới.
+            var byLeft = positioned.OrderBy(x => x.Left).ToList();
+            double typicalWidth = byLeft
+                .Where(x => x.Width > 1e-6)
+                .Select(x => x.Width)
+                .DefaultIfEmpty(1.0)
+                .OrderBy(x => x)
+                .ElementAt(positioned.Count / 2);
+            double colTolerance = Math.Max(1e-6, typicalWidth * 0.25);
+
+            var columns = new List<List<PosEntry>>();
+            foreach (var entry in byLeft)
+            {
+                var col = columns.FirstOrDefault(c => Math.Abs(c[0].Left - entry.Left) <= colTolerance);
+                if (col == null)
+                {
+                    col = new List<PosEntry>();
+                    columns.Add(col);
+                }
+                col.Add(entry);
+            }
+
+            var colResult = new List<SheetBlockPlotLogic.BlockItem>();
+            foreach (var col in columns.OrderBy(c => c[0].Left))
+            {
+                colResult.AddRange(col
+                    .OrderByDescending(x => x.Top)
                     .ThenBy(x => x.Index)
                     .Select(x => x.Item));
             }
-            return result;
+            return colResult;
         }
 
         private sealed class NaturalStringComparer : System.Collections.Generic.IComparer<string>
@@ -225,6 +266,14 @@ namespace CADtools
             Controls.Add(new Label { Left = 880, Top = y + 4, Width = 60, Height = 24, Text = "Nét in:", TextAlign = ContentAlignment.MiddleLeft });
             _cbStyle = new ComboBox { Left = 940, Top = y, Width = 290, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbStyle);
+
+            // Dropdown chọn thứ tự sắp xếp khung (đặt ở ô phải hàng 1 trong ApplyResponsiveLayout).
+            _cbSortOrder = new ComboBox { Left = 940, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbSortOrder.Items.Add("Từ trái sang phải, từ trên xuống dưới");
+            _cbSortOrder.Items.Add("Từ trên xuống dưới, từ trái sang phải");
+            _cbSortOrder.SelectedIndex = 1; // mặc định giữ đúng thứ tự hiện tại (trên->dưới, trái->phải)
+            _cbSortOrder.DropDownWidth = 320;
+            _cbSortOrder.SelectedIndexChanged += (s, e) => ResSortCurrentList();
 
             // Fit luôn bật -> bỏ checkbox (không hiển thị)
 
@@ -483,12 +532,21 @@ namespace CADtools
             PutButton(setup, _btnPickLine, 3, 0, 114);
             PutButton(setup, _btnFilterWindow, 4, 0, 114);
             PutButton(setup, _btnRefresh, 5, 0, 86);
-            // Ô trống bên phải Search: hiện tên layer khi đang ở chế độ LINE.
+            // Ô phải hàng 1: dropdown chọn thứ tự sắp xếp + nhãn layer LINE (chế độ LINE mới hiện).
             _lblLineLayer.Dock = DockStyle.Fill;
             _lblLineLayer.TextAlign = ContentAlignment.MiddleLeft;
             _lblLineLayer.Margin = new Padding(4, 1, 0, 1);
             _lblLineLayer.Font = new System.Drawing.Font(_lblLineLayer.Font, System.Drawing.FontStyle.Bold);
-            setup.Controls.Add(_lblLineLayer, 6, 0);
+            var sortCell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0) };
+            sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 62));
+            sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+            sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+            sortCell.Controls.Add(new Label { Text = "Sắp xếp:", TextAlign = ContentAlignment.MiddleLeft, Dock = DockStyle.Fill, Margin = new Padding(4, 1, 0, 1) }, 0, 0);
+            _cbSortOrder.Dock = DockStyle.Fill;
+            _cbSortOrder.Margin = new Padding(0, 1, 7, 1);
+            sortCell.Controls.Add(_cbSortOrder, 1, 0);
+            sortCell.Controls.Add(_lblLineLayer, 2, 0);
+            setup.Controls.Add(sortCell, 6, 0);
             UpdateModeDisplay();
             AddSetupLabel(setup, "Thư mục PDF", 0, 1);
             Put(setup, _txtOutDir, 1, 1);
@@ -824,8 +882,20 @@ namespace CADtools
                 try { _ed.WriteMessage("\n[LỖI Search] " + ex.Message); } catch { }
             }
 
+            ApplySortAndFill();
+
+            try { _grid.ResumeLayout(); } catch { }
+            UpdateSelectionInfo();
+        }
+
+        // Sắp xếp _items theo thứ tự đã chọn, tính lại tên PDF mặc định rồi nạp lại grid
+        // (không quét lại bản vẽ — dùng cho cả Search sau khi quét và khi đổi dropdown sắp xếp).
+        private void ApplySortAndFill()
+        {
+            bool sortLtr = SortLeftToRightFirst();
             // Sort: block layout -> theo tên layout (natural), cùng layout thì theo vị trí;
-            // block Model -> theo vị trí (trên->dưới, trái->phải).
+            // block Model -> theo vị trí, với thứ tự vị trí lấy từ dropdown sắp xếp
+            // ("Từ trên xuống dưới, từ trái sang phải" hoặc "Từ trái sang phải, từ trên xuống dưới").
             try
             {
                 var layoutItems = _items.Where(x => !IsModelLayout(x == null ? null : x.LayoutName)).ToList();
@@ -842,15 +912,15 @@ namespace CADtools
                     string ln = it == null ? "" : (it.LayoutName ?? "");
                     if (lastLayout != null && !string.Equals(lastLayout, ln, StringComparison.OrdinalIgnoreCase))
                     {
-                        finalItems.AddRange(SortByPosition(group));
+                        finalItems.AddRange(SortByPosition(group, sortLtr));
                         group.Clear();
                     }
                     lastLayout = ln;
                     group.Add(it);
                 }
-                if (group.Count > 0) finalItems.AddRange(SortByPosition(group));
+                if (group.Count > 0) finalItems.AddRange(SortByPosition(group, sortLtr));
 
-                finalItems.AddRange(SortByPosition(modelItems));
+                finalItems.AddRange(SortByPosition(modelItems, sortLtr));
 
                 _items.Clear();
                 _items.AddRange(finalItems);
@@ -906,8 +976,26 @@ namespace CADtools
             }
             catch { }
 
+        }
+
+        // Đổi dropdown sắp xếp: sắp xếp lại danh sách HIỆN TẠI (không quét lại bản vẽ),
+        // rồi nạp lại grid + STT + tên PDF mặc định như sau khi Search.
+        private void ResSortCurrentList()
+        {
+            if (_items == null || _items.Count == 0) return;
+            if (_grid == null) return;
+            try { _grid.SuspendLayout(); } catch { }
+            try { _grid.Rows.Clear(); } catch { }
+            ApplySortAndFill();
             try { _grid.ResumeLayout(); } catch { }
             UpdateSelectionInfo();
+        }
+
+        // true = "Từ trái sang phải, từ trên xuống dưới" (mục 0 của dropdown);
+        // false (mặc định, kể cả khi dropdown chưa tạo) = "Từ trên xuống dưới, từ trái sang phải".
+        private bool SortLeftToRightFirst()
+        {
+            try { return _cbSortOrder != null && _cbSortOrder.SelectedIndex == 0; } catch { return false; }
         }
 
         private void ApplyDefaultPdfNames()
