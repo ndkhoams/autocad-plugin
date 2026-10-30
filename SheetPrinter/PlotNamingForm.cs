@@ -177,7 +177,35 @@ namespace CADtools
             txtOutDir.TextChanged += (s, e) => UpdateAllPreviews();
             Controls.Add(txtOutDir);
             btnBrowse = new Button { Text = "...", Left = 716, Top = 101 + dy, Width = 34, Height = 28 };
-            btnBrowse.Click += (s, e) => { using (var d = new FolderBrowserDialog()) if (d.ShowDialog() == DialogResult.OK) txtOutDir.Text = d.SelectedPath; };
+            btnBrowse.Click += (s, e) =>
+            {
+                // Dùng OpenFileDialog kiểu Explorer hiện đại (giống cửa sổ chọn file .dst)
+                // thay cho FolderBrowserDialog cũ (cây thư mục Browse For Folder).
+                // Mẹo chọn thư mục bằng OpenFileDialog: tắt kiểm tra file tồn tại, đặt sẵn
+                // tên giả; khi bấm Open thì suy ra thư mục từ FileName trả về.
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Title = "Chọn thư mục lưu PDF";
+                    dlg.Multiselect = false;
+                    dlg.ValidateNames = false;
+                    dlg.CheckFileExists = false;
+                    dlg.CheckPathExists = true;
+                    dlg.RestoreDirectory = true;
+                    dlg.FileName = "Chọn thư mục này";
+                    var cur = txtOutDir.Text;
+                    if (!string.IsNullOrWhiteSpace(cur) && Directory.Exists(cur))
+                        dlg.InitialDirectory = cur;
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                    var picked = dlg.FileName;
+                    if (File.Exists(picked))
+                        picked = Path.GetDirectoryName(picked); // chọn nhầm file -> lấy thư mục chứa nó
+                    else if (!Directory.Exists(picked) && Path.GetFileName(picked) == "Chọn thư mục này")
+                        picked = Path.GetDirectoryName(picked); // bấm Open với tên giả -> thư mục hiện tại
+                    // Còn lại: thư mục đã tồn tại (gõ tên thư mục có sẵn) hoặc thư mục mới
+                    // gõ tay -> giữ nguyên; lúc in Directory.CreateDirectory sẽ tạo nếu chưa có.
+                    if (!string.IsNullOrEmpty(picked)) txtOutDir.Text = picked;
+                }
+            };
             Controls.Add(btnBrowse);
 
             // Nut publish chinh nam ngay sau o thu muc
