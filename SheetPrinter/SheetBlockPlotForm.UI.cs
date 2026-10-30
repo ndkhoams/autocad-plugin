@@ -239,9 +239,31 @@ namespace CADtools
             _btnBrowseOut = new Button { Left = 830, Top = y, Width = 40, Height = 28, Text = "..." };
             _btnBrowseOut.Click += (s, e) =>
             {
-                using (var d = new FolderBrowserDialog())
+                // Dùng OpenFileDialog kiểu Explorer hiện đại (giống cửa sổ chọn file .dst)
+                // thay cho FolderBrowserDialog cũ (cây thư mục Browse For Folder).
+                // Mẹo chọn thư mục bằng OpenFileDialog: tắt kiểm tra file tồn tại, đặt sẵn
+                // tên giả; khi bấm Open thì suy ra thư mục từ FileName trả về.
+                using (var dlg = new OpenFileDialog())
                 {
-                    if (d.ShowDialog(this) == DialogResult.OK) _txtOutDir.Text = d.SelectedPath;
+                    dlg.Title = "Chọn thư mục lưu PDF";
+                    dlg.Multiselect = false;
+                    dlg.ValidateNames = false;
+                    dlg.CheckFileExists = false;
+                    dlg.CheckPathExists = true;
+                    dlg.RestoreDirectory = true;
+                    dlg.FileName = "Chọn thư mục này";
+                    var cur = _txtOutDir.Text;
+                    if (!string.IsNullOrWhiteSpace(cur) && Directory.Exists(cur))
+                        dlg.InitialDirectory = cur;
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                    var picked = dlg.FileName;
+                    if (File.Exists(picked))
+                        picked = Path.GetDirectoryName(picked); // chọn nhầm file -> lấy thư mục chứa nó
+                    else if (!Directory.Exists(picked) && Path.GetFileName(picked) == "Chọn thư mục này")
+                        picked = Path.GetDirectoryName(picked); // bấm Open với tên giả -> thư mục hiện tại
+                    // Còn lại: thư mục đã tồn tại (gõ tên thư mục có sẵn) hoặc thư mục mới
+                    // gõ tay -> giữ nguyên; lúc in Directory.CreateDirectory sẽ tạo nếu chưa có.
+                    if (!string.IsNullOrEmpty(picked)) _txtOutDir.Text = picked;
                 }
             };
             Controls.Add(_btnBrowseOut);
