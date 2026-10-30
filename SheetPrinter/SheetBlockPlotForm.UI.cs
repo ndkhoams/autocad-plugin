@@ -59,6 +59,14 @@ namespace CADtools
         // (quét LINE thuộc layer này — layer học từ 1 line mẫu người dùng pick).
         private string _lineLayer = null;
 
+        // Layer LINE mặc định khi người dùng quét vùng mà chưa chọn khung/LINE trước:
+        // các frame LINE trên layer này được hiểu là khung (bản vẽ của người dùng hay dùng KCS_Plotter).
+        private const string DefaultLineLayer = "KCS_Plotter";
+
+        // Đã chọn nguồn khung hay chưa (bấm "Chọn khung" hoặc "Chọn LINE" thành công).
+        // Chỉ dùng để quyết định mặc định ở lần "Chọn vùng in" đầu tiên.
+        private bool _sourcePicked = false;
+
         // Map hiển thị khổ giấy (A0/A1/A2/A3) -> canonical media name (ISO_full_bleed_...)
         private readonly Dictionary<string, string> _paperMediaMap =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -205,7 +213,7 @@ namespace CADtools
             _btnFilterWindow.Click += (s, e) => FilterByWindow();
             Controls.Add(_btnFilterWindow);
 
-            _btnRefresh = new Button { Left = 776, Top = y, Width = 90, Height = 28, Text = "Refresh" };
+            _btnRefresh = new Button { Left = 776, Top = y, Width = 90, Height = 28, Text = "Search" };
             _btnRefresh.Click += (s, e) => RefreshList();
             Controls.Add(_btnRefresh);
 
@@ -470,12 +478,12 @@ namespace CADtools
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             AddSetupLabel(setup, "Khung tên", 0, 0);
             Put(setup, _txtBlockName, 1, 0);
-            // Hàng 1 theo thứ tự thao tác: Chọn khung -> Chọn LINE -> Chọn vùng in -> Refresh.
+            // Hàng 1 theo thứ tự thao tác: Chọn khung -> Chọn LINE -> Chọn vùng in -> Search.
             PutButton(setup, _btnPickBlock, 2, 0, 108);
             PutButton(setup, _btnPickLine, 3, 0, 114);
             PutButton(setup, _btnFilterWindow, 4, 0, 114);
             PutButton(setup, _btnRefresh, 5, 0, 86);
-            // Ô trống bên phải Refresh: hiện tên layer khi đang ở chế độ LINE.
+            // Ô trống bên phải Search: hiện tên layer khi đang ở chế độ LINE.
             _lblLineLayer.Dock = DockStyle.Fill;
             _lblLineLayer.TextAlign = ContentAlignment.MiddleLeft;
             _lblLineLayer.Margin = new Padding(4, 1, 0, 1);
@@ -813,7 +821,7 @@ namespace CADtools
             }
             catch (System.Exception ex)
             {
-                try { _ed.WriteMessage("\n[LỖI Refresh] " + ex.Message); } catch { }
+                try { _ed.WriteMessage("\n[LỖI Search] " + ex.Message); } catch { }
             }
 
             // Sort: block layout -> theo tên layout (natural), cùng layout thì theo vị trí;
@@ -1150,7 +1158,7 @@ namespace CADtools
 
         // Nút "Chọn khung": ẩn form, cho người dùng pick 1 block khung tên HOẶC External Reference (xref),
         // rồi CHỈ điền tên vào ô "Block Khung Tên" — KHÔNG quét bản vẽ tại đây (quét toàn bộ rất chậm).
-        // Danh sách chỉ được tìm lại khi người dùng nhấn nút Refresh.
+        // Danh sách chỉ được tìm lại khi người dùng nhấn nút Search.
         // KHÔNG dùng AddAllowedClass (tránh loại nhầm xref) — tự kiểm tra sau khi chọn.
         private void PickBlockName()
         {
@@ -1215,13 +1223,14 @@ namespace CADtools
 
                         // Chọn khung = chuyển hẳn về chế độ BLOCK (tắt chế độ LINE nếu đang bật)
                         _lineLayer = null;
+                        _sourcePicked = true;
 
-                        // Chọn mới -> bỏ filter vùng cũ để lần Refresh sau quét toàn bộ theo tên mới
+                        // Chọn mới -> bỏ filter vùng cũ để lần Search sau quét toàn bộ theo tên mới
                         _windowFilterHandles = null;
 
                         // Xóa danh sách cũ (thuộc khung tên trước) để tránh in nhầm;
-                        // danh sách mới chỉ có sau khi nhấn Refresh.
-                        ClearListForRescan("Đã chọn khung '" + name + "' (chế độ Block). Nhấn Refresh để tìm.");
+                        // danh sách mới chỉ có sau khi nhấn Search.
+                        ClearListForRescan("Đã chọn khung '" + name + "' (chế độ Block). Nhấn Search để tìm.");
                         UpdateModeDisplay();
                     }
                     return;
@@ -1233,7 +1242,7 @@ namespace CADtools
             }
             finally
             {
-                // Chỉ hiện lại form — KHÔNG RefreshList ở đây: quét danh sách là việc của nút Refresh.
+                // Chỉ hiện lại form — KHÔNG RefreshList ở đây: quét danh sách là việc của nút Search.
                 try { this.Show(); this.Activate(); } catch { }
             }
         }
@@ -1253,7 +1262,7 @@ namespace CADtools
         }
 
         // Nút "Chọn LINE": pick ĐÚNG 1 line chéo khung tên để HỌC LAYER của nó, rồi chuyển
-        // hẳn sang chế độ LINE (loại trừ với chế độ Block): các lần Refresh sau đó chỉ quét
+        // hẳn sang chế độ LINE (loại trừ với chế độ Block): các lần Search sau đó chỉ quét
         // các LINE thuộc layer này, mỗi line coi như 1 khung tên (cửa sổ in = AABB 2 đầu line).
         // Giống "Chọn khung": chỉ đọc thông tin của 1 đối tượng mẫu, KHÔNG quét tại đây.
         private void PickLineLayer()
@@ -1296,10 +1305,11 @@ namespace CADtools
                     {
                         // Chuyển hẳn sang chế độ LINE + bỏ filter vùng cũ (đã đổi nguồn khung).
                         _lineLayer = layer.Trim();
+                        _sourcePicked = true;
                         _windowFilterHandles = null;
 
-                        // Xóa danh sách cũ để tránh in nhầm; danh sách line chỉ có sau khi nhấn Refresh.
-                        ClearListForRescan("Chế độ LINE — layer '" + _lineLayer + "'. Nhấn Refresh để tìm line khung.");
+                        // Xóa danh sách cũ để tránh in nhầm; danh sách line chỉ có sau khi nhấn Search.
+                        ClearListForRescan("Chế độ LINE — layer '" + _lineLayer + "'. Nhấn Search để tìm line khung.");
                         UpdateModeDisplay();
                     }
                     return;
@@ -1316,7 +1326,7 @@ namespace CADtools
         }
 
         // Nút "Chọn vùng in": chỉ ghi nhận tập handle trong vùng người dùng quét.
-        // KHÔNG quét/tìm tại đây — nhấn Refresh mới tìm (có vùng: chỉ trong vùng; chưa chọn vùng: toàn bộ bản vẽ).
+        // KHÔNG quét/tìm tại đây — nhấn Search mới tìm (có vùng: chỉ trong vùng; chưa chọn vùng: toàn bộ bản vẽ).
         private void FilterByWindow()
         {
             HashSet<string> picked = null;
@@ -1336,8 +1346,21 @@ namespace CADtools
             {
                 _windowFilterHandles = picked;
 
-                // Xóa danh sách cũ (không còn đúng với vùng lọc mới); nhấn Refresh để tìm lại trong vùng.
-                ClearListForRescan("Đã chọn vùng (" + picked.Count + " đối tượng). Nhấn Refresh để tìm trong vùng.");
+                // Chưa chọn nguồn khung nào trước đó (chưa bấm "Chọn khung"/"Chọn LINE"):
+                // mặc định hiểu là chế độ LINE với layer mặc định, để lần Search sau
+                // chỉ quét LINE khung trên layer đó trong vùng vừa chọn.
+                if (!_sourcePicked && string.IsNullOrWhiteSpace(_lineLayer))
+                {
+                    _lineLayer = DefaultLineLayer;
+                    _sourcePicked = true;
+                    UpdateModeDisplay();
+                    ClearListForRescan("Đã chọn vùng (" + picked.Count + " đối tượng). Mặc định LINE layer '" + DefaultLineLayer + "'. Nhấn Search để tìm trong vùng.");
+                }
+                else
+                {
+                    // Xóa danh sách cũ (không còn đúng với vùng lọc mới); nhấn Search để tìm lại trong vùng.
+                    ClearListForRescan("Đã chọn vùng (" + picked.Count + " đối tượng). Nhấn Search để tìm trong vùng.");
+                }
             }
             else
             {
@@ -1348,7 +1371,7 @@ namespace CADtools
         }
 
         // Xóa danh sách hiện tại sau khi đổi khung tên / vùng lọc.
-        // Danh sách mới chỉ xuất hiện khi người dùng nhấn Refresh.
+        // Danh sách mới chỉ xuất hiện khi người dùng nhấn Search.
         private void ClearListForRescan(string status)
         {
             _items.Clear();
