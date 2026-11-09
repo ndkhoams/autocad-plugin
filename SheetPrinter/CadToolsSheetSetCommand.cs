@@ -156,10 +156,18 @@ namespace CADtools
                 GList selected;
                 GList deletedSheets = new GList();
 
-                using (var form = new PlotNamingForm(sheets, defDir, dstPath))
+                var form = new PlotNamingForm(sheets, defDir, dstPath);
+                bool formClosed = false;
+                form.FormClosed += (sender, args) => formClosed = true;
                 {
+                    AcadApp.ShowModelessDialog(form);
+                    while (!formClosed && !form.IsDisposed)
+                    {
+                        System.Windows.Forms.Application.DoEvents();
+                        System.Threading.Thread.Sleep(20);
+                    }
 
-                    var dlgResult = AcadApp.ShowModalDialog(form);
+                    var dlgResult = form.DialogResult;
 
                     // Thu thap sheet da xoa NGAY khi form dong: form da go chung khoi danh sach
                     // chinh (sheets) nen Release(sheets) o cuoi lenh khong con thay chung nua —
@@ -169,6 +177,7 @@ namespace CADtools
                     if (dlgResult != DialogResult.OK)
                     {
                         SheetSetReader.ReleaseSheetComs(deletedSheets);
+                        form.Dispose();
                         return;
                     }
 
@@ -195,14 +204,17 @@ namespace CADtools
                         {
 
                             ed.WriteMessage("\nKhông đọc được DST: " + ex.Message);
+                            form.Dispose();
                             return;
                         }
                         if (sheets == null || sheets.Count == 0)
                         {
 
                             ed.WriteMessage("\nDST không có sheet nào.");
+                            form.Dispose();
                             return;
                         }
+                        form.Dispose();
                         continue; // open form again with new sheets
                     }
 
@@ -215,6 +227,7 @@ namespace CADtools
                     plotStyle = form.PlotStyle;
                     selected = form.SelectedSheets;
                     // deletedSheets da thu thap ngay sau ShowModalDialog o tren.
+                    form.Dispose();
                 }
 
                 // Bam "Lưu Sheet Set" -> ghi thay doi nguoc vao .dst, khong in.
