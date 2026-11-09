@@ -56,7 +56,7 @@ namespace CADtools
 
                 dialog.GetResult(out resultItem);
                 if (resultItem == null) return null;
-                resultItem.GetDisplayName(SIGDN_FILESYSPATH, out string path);
+                resultItem.GetDisplayName(SIGDN.FILESYSPATH, out string path);
                 return string.IsNullOrWhiteSpace(path) ? null : path;
             }
             catch { return null; } // Mọi lỗi COM/dialog đều coi như không chọn, không làm sập form
@@ -126,7 +126,7 @@ namespace CADtools
         }
 
         [ComImport]
-        [Guid("43826D1E-E718-42EE-BC55-A1E261C37B")]
+        [Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IShellItem
         {
