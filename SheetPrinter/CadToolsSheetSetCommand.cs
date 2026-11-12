@@ -136,10 +136,19 @@ namespace CADtools
                 ed.WriteMessage("\nKhông đọc được Sheet Set hiện hành: " + ex.Message);
             }
 
-            string defDir = !string.IsNullOrEmpty(doc.Database.Filename)
-            ? Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF")
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
             if (string.IsNullOrWhiteSpace(dstPath)) dstPath = TryGetCurrentDstPath(sheets);
+
+            // Thu muc mac dinh de xuat PDF: uu tien thu muc chua file .dst (thu muc du an),
+            // roi moi den thu muc ban ve DWG dang mo, cuoi cung la My Documents.
+            string dstDir = null;
+            try { dstDir = Path.GetDirectoryName(dstPath); } catch { }
+            string defDir;
+            if (!string.IsNullOrWhiteSpace(dstDir))
+                defDir = Path.Combine(dstDir, "PDF");
+            else if (!string.IsNullOrEmpty(doc.Database.Filename))
+                defDir = Path.Combine(Path.GetDirectoryName(doc.Database.Filename), "PDF");
+            else
+                defDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PDF");
 
             // dstPath được hiển thị trên form và dùng làm thư mục mặc định.
 
