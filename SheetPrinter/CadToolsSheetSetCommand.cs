@@ -143,6 +143,10 @@ namespace CADtools
 
             // dstPath được hiển thị trên form và dùng làm thư mục mặc định.
 
+            // Giu thu muc luu / template / tick gop do user da chon khi doi DST mo lai form.
+            string keepOutDir = null;
+            string keepTemplate = null;
+            bool keepMerged = false;
             // 2) Loop: mo form -> neu chon DST khac thi reload sheets va mo lai form
             while (true)
             {
@@ -157,6 +161,11 @@ namespace CADtools
                 GList deletedSheets = new GList();
 
                 var form = new PlotNamingForm(sheets, defDir, dstPath);
+                // Form moi khoi tao lai tat ca ve mac dinh — khoi phuc lai nhung gi
+                // user da chon o phien form truoc (neu co).
+                if (keepOutDir != null) form.OutputDir = keepOutDir;
+                if (keepTemplate != null) form.Template = keepTemplate;
+                if (keepMerged) form.Merged = true;
                 bool formClosed = false;
                 form.FormClosed += (sender, args) => formClosed = true;
                 {
@@ -187,6 +196,13 @@ namespace CADtools
                         // giai phong COM rieng cua cac sheet da xoa ngay tai day.
                         SheetSetReader.ReleaseSheetComs(deletedSheets);
 
+                        // Ghi nho nhung gi user da doi so voi goi y mac dinh cua form nay;
+                        // neu user chua doi gi thi form moi van goi y thu muc PDF canh DST moi nhu cu.
+                        if (!string.IsNullOrWhiteSpace(form.OutputDir)
+                            && !string.Equals(form.OutputDir.Trim().TrimEnd('\\'), defDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                            keepOutDir = form.OutputDir;
+                        keepTemplate = form.Template;
+                        keepMerged = form.Merged;
                         dstPath = form.DstPath;
                         // Update default output folder suggestion based on the newly selected DST
                         try

@@ -47,9 +47,9 @@ namespace CADtools
         private bool _bulk = false;
 
         public SsmAction Action { get; private set; }
-        public string Template { get { return txtTemplate.Text; } }
-        public string OutputDir { get { return txtOutDir.Text; } }
-        public bool Merged { get { return chkMerged.Checked; } }
+        public string Template { get { return txtTemplate.Text; } set { if (txtTemplate != null) txtTemplate.Text = value ?? ""; } }
+        public string OutputDir { get { return txtOutDir.Text; } set { if (txtOutDir != null) txtOutDir.Text = value ?? ""; } }
+        public bool Merged { get { return chkMerged.Checked; } set { if (chkMerged != null) chkMerged.Checked = value; } }
         public string PaperMedia
         {
             get
