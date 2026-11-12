@@ -126,6 +126,7 @@ namespace CADtools
                     DstChanged = true;
                     Action = SsmAction.None;
                     DialogResult = DialogResult.OK;
+                    Close(); // MODELESS: DialogResult khong tu dong dong form
                 }
             };
             Controls.Add(btnDstBrowse);
@@ -188,7 +189,7 @@ namespace CADtools
 
             // Nut publish chinh nam ngay sau o thu muc
             btnPrint = new Button { Text = "Publish to PDF", Left = 762, Top = 101 + dy, Width = 134, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
-            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; };
+            btnPrint.Click += (s, e) => { CommitAll(); Action = SsmAction.Print; DialogResult = DialogResult.OK; Close(); }; // MODELESS: DialogResult khong tu dong dong form, phai Close() thi lenh in moi chay
             Controls.Add(btnPrint);
 
             // Gộp PDF: cùng hàng Add Field, nằm bên phải panel token
@@ -208,7 +209,7 @@ namespace CADtools
             cbStyle = new ComboBox { Left = 1118, Top = 102 + dy, Width = 170, DropDownWidth = 280, Height = 26, DropDownStyle = ComboBoxStyle.DropDownList };
             LoadPlotStyles();
             btnPrintOptions = new Button { Text = "In tùy chọn", Left = 1296, Top = 101 + dy, Width = 124, Height = 28, Anchor = AnchorStyles.Top | AnchorStyles.Left };
-            btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; };
+            btnPrintOptions.Click += (s, e) => { CommitAll(); Action = SsmAction.PrintWithOptions; DialogResult = DialogResult.OK; Close(); }; // MODELESS: nhu nut Publish to PDF
             Controls.Add(lblPaper);
             Controls.Add(cbPaper);
             Controls.Add(lblStyle);
@@ -687,6 +688,7 @@ namespace CADtools
             btnCancel = new Button { Text = "Đóng", Left = rightEdge - 96, Top = btnTop, Width = 96, Height = 32, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, DialogResult = DialogResult.Cancel };
 
             Controls.Add(btnSave); Controls.Add(btnCancel);
+            btnCancel.Click += (s, e) => { try { Close(); } catch { } }; // MODELESS: DialogResult=Cancel khong tu dong dong form
             AcceptButton = btnPrint; CancelButton = btnCancel;
 
             UpdateAllPreviews();
