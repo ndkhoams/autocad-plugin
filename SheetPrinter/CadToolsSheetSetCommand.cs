@@ -144,7 +144,7 @@ namespace CADtools
             // dstPath được hiển thị trên form và dùng làm thư mục mặc định.
 
             // Giu thu muc luu / template / tick gop do user da chon khi doi DST mo lai form.
-            string keepOutDir = null;
+            string keepOutDir = LoadRememberedOutDir(); // Nho thu muc lan truoc (%AppData%\CADtools\SSP_OutDir.txt).
             string keepTemplate = null;
             bool keepMerged = false;
             // 2) Loop: mo form -> neu chon DST khac thi reload sheets va mo lai form
@@ -237,6 +237,8 @@ namespace CADtools
                     action = form.Action;
                     template = form.Template;
                     outDir = form.OutputDir;
+                    SaveRememberedOutDir(outDir);
+                    try { ed.WriteMessage("\n[SSP] Thu muc luu PDF: '{0}' (goi y mac dinh: '{1}')", outDir, defDir); } catch { }
                     merged = form.Merged;
                     printWithOptions = action == PlotNamingForm.SsmAction.PrintWithOptions;
                     paperMedia = form.PaperMedia;
@@ -687,6 +689,39 @@ namespace CADtools
                 catch { }
             }
             return null;
+        }
+
+        // Nho thu muc luu PDF lan truoc qua cac lan chay SSP (%AppData%\CADtools\SSP_OutDir.txt):
+        // chon 1 lan thi cac lan sau mo len da dung thu muc do, khoi phai chon lai.
+        // Doc/ghi loi thi bo qua im lang (ve mac dinh nhu cu).
+        private static string RememberedOutDirPath()
+        {
+            try { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CADtools", "SSP_OutDir.txt"); }
+            catch { return null; }
+        }
+
+        private static string LoadRememberedOutDir()
+        {
+            try
+            {
+                string p = RememberedOutDirPath();
+                if (string.IsNullOrWhiteSpace(p) || !File.Exists(p)) return null;
+                string d = File.ReadAllText(p).Trim();
+                return !string.IsNullOrWhiteSpace(d) && Directory.Exists(d) ? d : null;
+            }
+            catch { return null; }
+        }
+
+        private static void SaveRememberedOutDir(string dir)
+        {
+            try
+            {
+                string p = RememberedOutDirPath();
+                if (string.IsNullOrWhiteSpace(p) || string.IsNullOrWhiteSpace(dir)) return;
+                Directory.CreateDirectory(Path.GetDirectoryName(p));
+                File.WriteAllText(p, dir.Trim());
+            }
+            catch { }
         }
 
         // Auto-detect DST currently shown in Sheet Set Manager palette (AutoCAD 2023) via UI Automation.
