@@ -175,17 +175,8 @@ namespace CADtools
                 if (keepOutDir != null) form.OutputDir = keepOutDir;
                 if (keepTemplate != null) form.Template = keepTemplate;
                 if (keepMerged) form.Merged = true;
-                bool formClosed = false;
-                form.FormClosed += (sender, args) => formClosed = true;
                 {
-                    AcadApp.ShowModelessDialog(form);
-                    while (!formClosed && !form.IsDisposed)
-                    {
-                        System.Windows.Forms.Application.DoEvents();
-                        System.Threading.Thread.Sleep(20);
-                    }
-
-                    var dlgResult = form.DialogResult;
+                    var dlgResult = AcadApp.ShowModalDialog(form);
 
                     // Thu thap sheet da xoa NGAY khi form dong: form da go chung khoi danh sach
                     // chinh (sheets) nen Release(sheets) o cuoi lenh khong con thay chung nua —
