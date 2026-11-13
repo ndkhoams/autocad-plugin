@@ -36,6 +36,7 @@ namespace CADtools
         private ComboBox _cbPaper;
         private ComboBox _cbStyle;
         private ComboBox _cbSortOrder;
+        private ComboBox _cbCompareCorner;
         // Fit luôn bật -> bỏ checkbox khỏi UI
         private DataGridView _grid;
         private Button _btnPrint;
@@ -100,7 +101,10 @@ namespace CADtools
             public double Width;
         }
 
-        private static List<SheetBlockPlotLogic.BlockItem> SortByPosition(List<SheetBlockPlotLogic.BlockItem> items, bool leftToRightFirst)
+        // Thứ tự in y hệt KCS Plotter: 3 kiểu duyệt + góc so sánh (góc của khung dùng để so vị trí).
+        private enum SbpSortMode { RowsTopDown, RowsBottomUp, Columns }
+
+        private static List<SheetBlockPlotLogic.BlockItem> SortByPosition(List<SheetBlockPlotLogic.BlockItem> items, SbpSortMode mode, bool useBottomLeft)
         {
             var positioned = items
                 .Select((item, index) => new PosEntry
@@ -108,7 +112,7 @@ namespace CADtools
                     Item = item,
                     Index = index,
                     Left = item == null ? 0 : item.Window.MinPoint.X,
-                    Top = item == null ? 0 : item.Window.MaxPoint.Y,
+                    Top = item == null ? 0 : (useBottomLeft ? item.Window.MinPoint.Y : item.Window.MaxPoint.Y),
                     Height = item == null ? 0 : item.Window.MaxPoint.Y - item.Window.MinPoint.Y,
                     Width = item == null ? 0 : item.Window.MaxPoint.X - item.Window.MinPoint.X
                 })
@@ -136,12 +140,15 @@ namespace CADtools
                 row.Add(entry);
             }
 
-            if (!leftToRightFirst)
+            if (mode != SbpSortMode.Columns)
             {
-                // Trên->dưới trước (thứ tự hiện tại): gom thành HÀNG theo Top,
-                // hàng xếp từ trên xuống dưới, trong mỗi hàng xếp từ trái sang phải.
+                // Hàng ngang (KCS icon 1: trên->dưới; icon 2: dưới->lên): gom thành HÀNG theo Top,
+                // trong mỗi hàng xếp từ trái sang phải.
                 var result = new List<SheetBlockPlotLogic.BlockItem>();
-                foreach (var row in rows.OrderByDescending(r => r[0].Top))
+                var orderedRows = mode == SbpSortMode.RowsBottomUp
+                    ? rows.OrderBy(r => r[0].Top)
+                    : rows.OrderByDescending(r => r[0].Top);
+                foreach (var row in orderedRows)
                 {
                     result.AddRange(row
                         .OrderBy(x => x.Left)
@@ -151,7 +158,7 @@ namespace CADtools
                 return result;
             }
 
-            // Trái->phải trước: gom thành CỘT theo Left (tolerance 25% bề rộng trung vị),
+            // Cột dọc (KCS icon 3): gom thành CỘT theo Left (tolerance 25% bề rộng trung vị),
             // cột xếp từ trái sang phải, trong mỗi cột xếp từ trên xuống dưới.
             var byLeft = positioned.OrderBy(x => x.Left).ToList();
             double typicalWidth = byLeft
@@ -267,13 +274,23 @@ namespace CADtools
             _cbStyle = new ComboBox { Left = 940, Top = y, Width = 290, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
             Controls.Add(_cbStyle);
 
-            // Dropdown chọn thứ tự sắp xếp khung (đặt ở ô phải hàng 1 trong ApplyResponsiveLayout).
+            // Dropdown chọn thứ tự sắp xếp khung, y hệt KCS Plotter (đặt ở ô phải hàng 1 trong ApplyResponsiveLayout):
+            // 3 kiểu duyệt (hàng ngang trên->dưới, hàng ngang dưới->lên, cột dọc trái->phải)
+            // + góc so sánh (trên-trái / dưới-trái). Mặc định = lựa chọn của KCS (hàng ngang trên->dưới, góc trên-trái).
             _cbSortOrder = new ComboBox { Left = 940, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbSortOrder.Items.Add("Từ trái sang phải, từ trên xuống dưới");
-            _cbSortOrder.Items.Add("Từ trên xuống dưới, từ trái sang phải");
-            _cbSortOrder.SelectedIndex = 1; // mặc định giữ đúng thứ tự hiện tại (trên->dưới, trái->phải)
+            _cbSortOrder.Items.Add("Hàng ngang: từ trên xuống dưới");
+            _cbSortOrder.Items.Add("Hàng ngang: từ dưới lên trên");
+            _cbSortOrder.Items.Add("Cột dọc: từ trái sang phải");
+            _cbSortOrder.SelectedIndex = 0; // mặc định = KCS (hàng ngang, trên->dưới, trái->phải)
             _cbSortOrder.DropDownWidth = 320;
             _cbSortOrder.SelectedIndexChanged += (s, e) => ResSortCurrentList();
+
+            _cbCompareCorner = new ComboBox { Left = 940, Top = y, Width = 300, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbCompareCorner.Items.Add("Góc trên - Bên trái");
+            _cbCompareCorner.Items.Add("Góc dưới - Bên trái");
+            _cbCompareCorner.SelectedIndex = 0; // mặc định = KCS (góc trên-trái)
+            _cbCompareCorner.DropDownWidth = 320;
+            _cbCompareCorner.SelectedIndexChanged += (s, e) => ResSortCurrentList();
 
             // Fit luôn bật -> bỏ checkbox (không hiển thị)
 
@@ -487,7 +504,7 @@ namespace CADtools
                 RowCount = 4,
                 BackColor = BackColor
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 146));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
@@ -500,7 +517,7 @@ namespace CADtools
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 122));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
             setup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
-            setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 68)); // hàng 1 cao gấp đôi: 2 dòng (Sắp xếp + Góc so sánh)
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             setup.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             AddSetupLabel(setup, "Khung tên", 0, 0);
@@ -515,15 +532,21 @@ namespace CADtools
             _lblLineLayer.TextAlign = ContentAlignment.MiddleLeft;
             _lblLineLayer.Margin = new Padding(4, 1, 0, 1);
             _lblLineLayer.Font = new System.Drawing.Font(_lblLineLayer.Font, System.Drawing.FontStyle.Bold);
-            var sortCell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0) };
-            sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 62));
+            var sortCell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, Margin = new Padding(0) };
+            sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
             sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
             sortCell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+            sortCell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            sortCell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             sortCell.Controls.Add(new Label { Text = "Sắp xếp:", TextAlign = ContentAlignment.MiddleLeft, Dock = DockStyle.Fill, Margin = new Padding(4, 1, 0, 1) }, 0, 0);
             _cbSortOrder.Dock = DockStyle.Fill;
             _cbSortOrder.Margin = new Padding(0, 1, 7, 1);
             sortCell.Controls.Add(_cbSortOrder, 1, 0);
             sortCell.Controls.Add(_lblLineLayer, 2, 0);
+            sortCell.Controls.Add(new Label { Text = "Góc so sánh:", TextAlign = ContentAlignment.MiddleLeft, Dock = DockStyle.Fill, Margin = new Padding(4, 1, 0, 1) }, 0, 1);
+            _cbCompareCorner.Dock = DockStyle.Fill;
+            _cbCompareCorner.Margin = new Padding(0, 1, 7, 1);
+            sortCell.Controls.Add(_cbCompareCorner, 1, 1);
             setup.Controls.Add(sortCell, 6, 0);
             UpdateModeDisplay();
             AddSetupLabel(setup, "Thư mục PDF", 0, 1);
@@ -870,10 +893,11 @@ namespace CADtools
         // (không quét lại bản vẽ — dùng cho cả Search sau khi quét và khi đổi dropdown sắp xếp).
         private void ApplySortAndFill()
         {
-            bool sortLtr = SortLeftToRightFirst();
+            SbpSortMode sortMode = GetSortMode();
+            bool useBottomLeft = UseBottomLeftCorner();
             // Sort: block layout -> theo tên layout (natural), cùng layout thì theo vị trí;
-            // block Model -> theo vị trí, với thứ tự vị trí lấy từ dropdown sắp xếp
-            // ("Từ trên xuống dưới, từ trái sang phải" hoặc "Từ trái sang phải, từ trên xuống dưới").
+            // block Model -> theo vị trí, với thứ tự vị trí y hệt KCS Plotter
+            // (dropdown "Sắp xếp" + "Góc so sánh").
             try
             {
                 var layoutItems = _items.Where(x => !IsModelLayout(x == null ? null : x.LayoutName)).ToList();
@@ -890,15 +914,15 @@ namespace CADtools
                     string ln = it == null ? "" : (it.LayoutName ?? "");
                     if (lastLayout != null && !string.Equals(lastLayout, ln, StringComparison.OrdinalIgnoreCase))
                     {
-                        finalItems.AddRange(SortByPosition(group, sortLtr));
+                        finalItems.AddRange(SortByPosition(group, sortMode, useBottomLeft));
                         group.Clear();
                     }
                     lastLayout = ln;
                     group.Add(it);
                 }
-                if (group.Count > 0) finalItems.AddRange(SortByPosition(group, sortLtr));
+                if (group.Count > 0) finalItems.AddRange(SortByPosition(group, sortMode, useBottomLeft));
 
-                finalItems.AddRange(SortByPosition(modelItems, sortLtr));
+                finalItems.AddRange(SortByPosition(modelItems, sortMode, useBottomLeft));
 
                 _items.Clear();
                 _items.AddRange(finalItems);
@@ -969,11 +993,27 @@ namespace CADtools
             UpdateSelectionInfo();
         }
 
-        // true = "Từ trái sang phải, từ trên xuống dưới" (mục 0 của dropdown);
-        // false (mặc định, kể cả khi dropdown chưa tạo) = "Từ trên xuống dưới, từ trái sang phải".
-        private bool SortLeftToRightFirst()
+        // Kiểu duyệt theo dropdown "Sắp xếp" (y hệt 3 ô "Thứ tự in" của KCS Plotter);
+        // mặc định (kể cả khi dropdown chưa tạo) = hàng ngang từ trên xuống dưới.
+        private SbpSortMode GetSortMode()
         {
-            try { return _cbSortOrder != null && _cbSortOrder.SelectedIndex == 0; } catch { return false; }
+            try
+            {
+                switch (_cbSortOrder == null ? 0 : _cbSortOrder.SelectedIndex)
+                {
+                    case 1: return SbpSortMode.RowsBottomUp;
+                    case 2: return SbpSortMode.Columns;
+                    default: return SbpSortMode.RowsTopDown;
+                }
+            }
+            catch { return SbpSortMode.RowsTopDown; }
+        }
+
+        // true = "Góc dưới - Bên trái" (mục 1 của dropdown "Góc so sánh");
+        // false (mặc định) = "Góc trên - Bên trái": so vị trí khung theo mép trên.
+        private bool UseBottomLeftCorner()
+        {
+            try { return _cbCompareCorner != null && _cbCompareCorner.SelectedIndex == 1; } catch { return false; }
         }
 
         private void ApplyDefaultPdfNames()
