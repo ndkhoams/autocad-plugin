@@ -14,8 +14,9 @@ namespace CADtools
 {
     public class UpdateCommands
     {
-        private const string BuildTimestamp = "20261109-160004";
+        private const string BuildTimestamp = "20261126-235151";
         private const string LatestSourceUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/SheetPrinter/UpdateCommands.cs";
+        private const string VersionApiUrl = "https://check-ver.khoand21.workers.dev/cadtools/version";
         private const string DownloadUrl = "https://raw.githubusercontent.com/ndkhoams/autocad-plugin/main/AutoCad_SSP.iso";
         private static readonly HttpClient Http = CreateHttpClient();
 
@@ -41,6 +42,18 @@ namespace CADtools
 
         private static async Task<DateTime> GetLatestBuildTimeAsync()
         {
+            try
+            {
+                string json = await Http.GetStringAsync(VersionApiUrl).ConfigureAwait(false);
+                Match apiMatch = Regex.Match(json, @"""build_timestamp""\s*:\s*""(?<timestamp>\d{8}-\d{6})""");
+                if (apiMatch.Success)
+                    return DateTime.ParseExact(apiMatch.Groups["timestamp"].Value, "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                // Worker khong phan hoi: quay ve cach cu doc thang GitHub.
+            }
+
             string source = await Http.GetStringAsync(LatestSourceUrl).ConfigureAwait(false);
             Match match = Regex.Match(source, @"private const string BuildTimestamp = ""(?<timestamp>\d{8}-\d{6})"";");
             if (!match.Success)
